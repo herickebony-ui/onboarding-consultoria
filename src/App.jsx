@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc } from "firebase/firestore";
 import { 
-  ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
+  Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
   ExternalLink, Play, Settings, Plus, Trash2, Layout, Eye, MoveUp, MoveDown, 
-  Image as ImageIcon, Upload, Bold, Italic, Underline, Type, Globe, Monitor, 
-  Lock, Save, Loader, Link as LinkIcon, MoveVertical
+  Image as ImageIcon, Upload, Bold, Italic, Underline, Link as LinkIcon, 
+  Monitor, Loader, ArrowLeft, Edit, Save, X
 } from 'lucide-react';
 
-// --- ⚠️ CONFIGURAÇÃO DO FIREBASE (Mantenha igual ao seu anterior) ---
+// --- ⚠️ CONFIGURAÇÃO DO FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyDiLbc_PiVR1EVoLRJlZvNZYSMxb2rEE54",
   authDomain: "onboarding-consultoria.firebaseapp.com",
@@ -26,7 +26,19 @@ try {
   console.log("Aguardando configuração...");
 }
 
-// --- EDITOR DE TEXTO COM LINK ---
+// --- HELPER: GERADOR DE SLUG LIMPO ---
+const generateSlug = (text) => {
+  return text
+    .toString()
+    .toLowerCase()
+    .trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, "") 
+    .replace(/\s+/g, '-')     
+    .replace(/[^\w\-]+/g, '') 
+    .replace(/\-\-+/g, '-');  
+};
+
+// --- EDITOR DE TEXTO AVANÇADO ---
 const RichTextEditor = ({ value, onChange }) => {
   const editorRef = useRef(null);
   
@@ -36,8 +48,17 @@ const RichTextEditor = ({ value, onChange }) => {
   };
 
   const addLink = () => {
-    const url = prompt("Digite a URL do link (ex: https://google.com):");
-    if (url) execCmd('createLink', url);
+    const selection = window.getSelection().toString();
+    let url = prompt("Cole o link aqui:", "https://");
+    if (!url) return;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://${url}`;
+    }
+    const text = prompt("Texto do link:", selection || "Clique aqui");
+    if (!text) return;
+    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">${text}</a>`;
+    document.execCommand('insertHTML', false, linkHtml);
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
   useEffect(() => {
@@ -53,30 +74,180 @@ const RichTextEditor = ({ value, onChange }) => {
         <button onClick={() => execCmd('italic')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Italic className="w-4 h-4" /></button>
         <button onClick={() => execCmd('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Underline className="w-4 h-4" /></button>
         <div className="w-px h-4 bg-gray-300 mx-1"></div>
-        <button onClick={addLink} className="p-1.5 hover:bg-blue-100 text-blue-600 rounded" title="Inserir Link"><LinkIcon className="w-4 h-4" /></button>
-        <div className="w-px h-4 bg-gray-300 mx-1"></div>
-        <button onClick={() => execCmd('fontSize', '5')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Type className="w-4 h-4" /></button>
-        <button onClick={() => execCmd('fontSize', '3')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Type className="w-3 h-3" /></button>
+        <button onClick={addLink} className="p-1.5 hover:bg-blue-100 text-blue-600 rounded" title="Inserir Link Personalizado"><LinkIcon className="w-4 h-4" /></button>
         <div className="w-px h-4 bg-gray-300 mx-1"></div>
         <button onClick={() => execCmd('foreColor', '#000000')} className="w-5 h-5 rounded-full bg-black border border-gray-200"></button>
         <button onClick={() => execCmd('foreColor', '#2563eb')} className="w-5 h-5 rounded-full bg-blue-600 border border-gray-200"></button>
         <button onClick={() => execCmd('foreColor', '#dc2626')} className="w-5 h-5 rounded-full bg-red-600 border border-gray-200"></button>
-        <button onClick={() => execCmd('foreColor', '#16a34a')} className="w-5 h-5 rounded-full bg-green-600 border border-gray-200"></button>
       </div>
       <div ref={editorRef} contentEditable className="p-3 min-h-[100px] text-sm text-gray-800 focus:outline-none prose prose-sm max-w-none" onInput={(e) => onChange(e.currentTarget.innerHTML)} onBlur={(e) => onChange(e.currentTarget.innerHTML)}></div>
     </div>
   );
 };
 
+// --- COMPONENTE DASHBOARD ---
+const Dashboard = ({ onSelectPlan, onCreatePlan, plans, onDeletePlan, onDuplicatePlan, onUpdatePlanMeta }) => {
+  const [newPlanName, setNewPlanName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Estados para Edição de Nome
+  const [editingPlan, setEditingPlan] = useState(null); 
+  const [editName, setEditName] = useState("");
+
+  // Estados para Duplicação (NOVO)
+  const [duplicatingPlan, setDuplicatingPlan] = useState(null);
+  const [duplicateName, setDuplicateName] = useState("");
+
+  const handleCreate = () => {
+    if(!newPlanName) return;
+    const id = generateSlug(newPlanName);
+    const exists = plans.some(p => p.id === id);
+    if(exists) {
+      alert("Já existe um fluxo com este nome/ID. Tente um nome diferente.");
+      return;
+    }
+    onCreatePlan(id, newPlanName);
+  };
+
+  const copyLink = (id) => {
+    const url = `${window.location.origin}/?id=${id}`;
+    navigator.clipboard.writeText(url);
+    alert("Link copiado: " + url);
+  };
+
+  // -- Edição --
+  const openEditModal = (plan) => {
+    setEditingPlan(plan);
+    setEditName(plan.name || plan.id);
+  };
+
+  const saveEdit = () => {
+    if (!editName) return alert("O nome é obrigatório");
+    onUpdatePlanMeta(editingPlan.id, editingPlan.id, editName);
+    setEditingPlan(null);
+  };
+
+  // -- Duplicação (NOVO FLUXO) --
+  const openDuplicateModal = (plan) => {
+    setDuplicatingPlan(plan);
+    setDuplicateName(`${plan.name} (Cópia)`);
+  };
+
+  const confirmDuplicate = () => {
+    if (!duplicateName) return alert("O nome da cópia é obrigatório");
+    onDuplicatePlan(duplicatingPlan.id, duplicateName);
+    setDuplicatingPlan(null);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6 font-sans">
+      <div className="max-w-5xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Meus Fluxos de Onboarding</h1>
+        <p className="text-gray-500 mb-8">Gerencie os diferentes tipos de consultoria que você oferece.</p>
+
+        {/* MODAL EDITAR NOME */}
+        {editingPlan && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+              <h2 className="text-xl font-bold mb-4">Renomear Fluxo</h2>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Novo Nome</label>
+              <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full p-2 border border-gray-300 rounded mb-6"/>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setEditingPlan(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                <button onClick={saveEdit} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Salvar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DUPLICAR (NOVO) */}
+        {duplicatingPlan && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+              <h2 className="text-xl font-bold mb-2">Duplicar Fluxo</h2>
+              <p className="text-sm text-gray-500 mb-4">Isso criará uma cópia idêntica de <b>{duplicatingPlan.name}</b>. Defina o nome da nova cópia:</p>
+              
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Cópia</label>
+              <input 
+                autoFocus
+                type="text" 
+                value={duplicateName} 
+                onChange={(e) => setDuplicateName(e.target.value)} 
+                className="w-full p-2 border border-gray-300 rounded mb-2"
+              />
+              <p className="text-xs text-gray-400 mb-6 font-mono bg-gray-50 p-1 rounded inline-block">
+                ID será: {generateSlug(duplicateName || 'novo-id')}
+              </p>
+
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setDuplicatingPlan(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                <button onClick={confirmDuplicate} className="px-4 py-2 bg-black text-white rounded font-bold hover:bg-gray-800 flex items-center gap-2">
+                  <Copy className="w-4 h-4"/> Duplicar Agora
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {/* Card Criar Novo */}
+          <div className="bg-white p-6 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-center hover:border-blue-500 transition-colors min-h-[200px]">
+            {!isCreating ? (
+              <button onClick={() => setIsCreating(true)} className="flex flex-col items-center gap-2 w-full h-full py-8">
+                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center"><Plus className="w-6 h-6"/></div>
+                <span className="font-bold text-gray-700">Criar Novo Fluxo</span>
+              </button>
+            ) : (
+              <div className="w-full animate-in fade-in">
+                <label className="block text-xs font-bold text-left text-gray-500 mb-1">Nome do Plano</label>
+                <input autoFocus type="text" placeholder="Ex: Hipertrofia A" className="w-full p-2 border border-gray-300 rounded mb-3 text-sm" value={newPlanName} onChange={e => setNewPlanName(e.target.value)} />
+                <div className="flex gap-2">
+                  <button onClick={handleCreate} className="flex-1 bg-black text-white py-2 rounded text-sm font-bold">Criar</button>
+                  <button onClick={() => setIsCreating(false)} className="px-3 bg-gray-100 rounded text-sm font-bold">X</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Lista de Planos */}
+          {plans.map((plan) => (
+            <div key={plan.id} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow relative group flex flex-col justify-between min-h-[200px]">
+              <div>
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="font-bold text-lg text-gray-900 leading-tight">{plan.name || plan.id}</h3>
+                  <button onClick={() => openEditModal(plan)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Renomear Fluxo"><Edit className="w-4 h-4" /></button>
+                </div>
+                <p className="text-xs text-gray-400 font-mono mb-6 bg-gray-50 inline-block px-2 py-1 rounded">ID: {plan.id}</p>
+              </div>
+              <div className="space-y-2">
+                <button onClick={() => onSelectPlan(plan.id)} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center justify-center gap-2"><Settings className="w-4 h-4"/> Editar Fluxo</button>
+                <div className="flex gap-2">
+                  <button onClick={() => copyLink(plan.id)} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2" title="Copiar Link"><LinkIcon className="w-4 h-4"/> Link</button>
+                  {/* Botão Duplicar agora abre o Modal */}
+                  <button onClick={() => openDuplicateModal(plan)} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2" title="Duplicar Fluxo"><Copy className="w-4 h-4"/> Duplicar</button>
+                </div>
+              </div>
+              <button onClick={() => {if(confirm('Tem certeza? Isso apagará este fluxo para sempre.')) onDeletePlan(plan.id)}} className="absolute -top-2 -right-2 p-2 bg-white border border-gray-200 shadow-sm rounded-full text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const OnboardingConsultoria = () => {
-  const [isEditorMode, setIsEditorMode] = useState(false);
+  const [viewState, setViewState] = useState('loading'); 
   const [isAdminAccess, setIsAdminAccess] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [activePlanId, setActivePlanId] = useState(null);
+  const [availablePlans, setAvailablePlans] = useState([]);
+  
+  // Estados do Editor
   const [isSaving, setIsSaving] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
-
-  // Estados
+  
+  // Dados do Fluxo
   const [coachName, setCoachName] = useState("Sua Consultoria");
   const [whatsappLink, setWhatsappLink] = useState("https://wa.me/");
   const [finalTitle, setFinalTitle] = useState("Tudo Pronto! 🎉");
@@ -84,7 +255,9 @@ const OnboardingConsultoria = () => {
   const [finalButtonText, setFinalButtonText] = useState("Falar com o Treinador");
   const [steps, setSteps] = useState([]);
 
-  // Tailwind Fix
+  // Default
+  const defaultSteps = [{ id: 1, type: 'welcome', title: 'Boas-vindas', content: 'Bem-vindo ao time!', buttonText: '', link: '', coverImage: null, coverPosition: 50, images: [] }];
+
   useEffect(() => {
     if (!document.querySelector('script[src*="tailwindcss"]')) {
       const script = document.createElement('script');
@@ -92,155 +265,197 @@ const OnboardingConsultoria = () => {
       script.async = true;
       document.head.appendChild(script);
     }
-  }, []);
 
-  const defaultSteps = [{ id: 1, type: 'welcome', title: 'Boas-vindas', content: 'Bem-vindo ao time!', buttonText: '', link: '', coverImage: null, coverPosition: 50, images: [] }];
+    const init = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const urlId = params.get('id');
+      const isAdmin = params.get('admin') === 'true';
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('admin') === 'true') { setIsAdminAccess(true); setIsEditorMode(true); }
+      setIsAdminAccess(isAdmin);
 
-    const fetchData = async () => {
-      if (!db) { setSteps(defaultSteps); setIsLoading(false); return; }
-      try {
-        const docRef = doc(db, "onboarding", "config_geral");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setCoachName(data.coachName);
-          setWhatsappLink(data.whatsappLink);
-          setFinalTitle(data.finalTitle);
-          setFinalMessage(data.finalMessage);
-          setFinalButtonText(data.finalButtonText);
-          setSteps(data.steps || defaultSteps);
-        } else { setSteps(defaultSteps); }
-      } catch (error) { console.error(error); setSteps(defaultSteps); } finally { setIsLoading(false); }
+      if (urlId) {
+        await loadPlan(urlId);
+        setActivePlanId(urlId);
+        setViewState(isAdmin ? 'editor' : 'student');
+      } else if (isAdmin) {
+        await loadAllPlans();
+        setViewState('dashboard');
+      } else {
+        alert("Link incompleto. Por favor, use o link fornecido pelo seu treinador.");
+        setViewState('error');
+      }
     };
-    fetchData();
+
+    init();
   }, []);
 
-  const handleSaveToCloud = async () => {
-    if (!db) return alert("Firebase não configurado.");
-    setIsSaving(true);
+  // --- FUNÇÕES DE BANCO DE DADOS ---
+
+  const loadAllPlans = async () => {
+    if (!db) return;
     try {
-      await setDoc(doc(db, "onboarding", "config_geral"), { coachName, whatsappLink, finalTitle, finalMessage, finalButtonText, steps });
-      alert("✅ Salvo com sucesso!");
-    } catch (error) { alert("Erro ao salvar."); } finally { setIsSaving(false); }
+      const querySnapshot = await getDocs(collection(db, "onboarding"));
+      const plansList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAvailablePlans(plansList);
+    } catch (error) { console.error("Erro ao listar planos", error); }
   };
 
+  const loadPlan = async (id) => {
+    if (!db) { setSteps(defaultSteps); return; }
+    try {
+      const docRef = doc(db, "onboarding", id);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setCoachName(data.coachName || "Sua Consultoria");
+        setWhatsappLink(data.whatsappLink || "");
+        setFinalTitle(data.finalTitle || "Tudo Pronto!");
+        setFinalMessage(data.finalMessage || "Sucesso!");
+        setFinalButtonText(data.finalButtonText || "Continuar");
+        setSteps(data.steps || defaultSteps);
+      } else {
+        setCoachName("Nova Consultoria");
+        setSteps(defaultSteps);
+      }
+    } catch (error) { console.error("Erro ao carregar plano", error); }
+  };
+
+  const handleSaveToCloud = async () => {
+    if (!db || !activePlanId) return alert("Erro de configuração.");
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, "onboarding", activePlanId), { 
+        name: coachName, 
+        coachName, whatsappLink, finalTitle, finalMessage, finalButtonText, steps 
+      });
+      alert("✅ Fluxo salvo com sucesso!");
+    } catch (error) { alert("Erro ao salvar."); console.error(error); } finally { setIsSaving(false); }
+  };
+
+  const handleCreatePlan = async (id, name) => {
+    setActivePlanId(id);
+    setCoachName(name); 
+    setSteps(defaultSteps); 
+    setViewState('editor'); 
+  };
+
+  const handleDeletePlan = async (id) => {
+    if(!db) return;
+    try {
+      await deleteDoc(doc(db, "onboarding", id));
+      await loadAllPlans();
+    } catch (e) { alert("Erro ao deletar"); }
+  };
+
+  // --- DUPLICAR PLANO COM NOME ESPECÍFICO ---
+  const handleDuplicatePlan = async (originalId, customName) => {
+    if(!db) return;
+    const originalPlan = availablePlans.find(p => p.id === originalId);
+    if (!originalPlan) return;
+
+    // Gera ID baseado no nome escolhido pelo usuário
+    let newId = generateSlug(customName);
+    
+    if (availablePlans.some(p => p.id === newId)) {
+        alert("Já existe um fluxo com este ID (nome). Adicionando sufixo...");
+        newId = `${newId}-${Math.floor(Math.random() * 100)}`;
+    }
+
+    const { id, ...dataToSave } = originalPlan;
+    // Usa o nome customizado
+    const newPlanData = { ...dataToSave, name: customName };
+
+    try {
+      await setDoc(doc(db, "onboarding", newId), newPlanData);
+      alert("Fluxo duplicado com sucesso!");
+      await loadAllPlans();
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao duplicar: " + e.message);
+    }
+  };
+
+  const handleUpdatePlanMetadata = async (oldId, newId, newName) => {
+    if(!db) return;
+    if (oldId === newId) {
+      try {
+        await setDoc(doc(db, "onboarding", oldId), { name: newName }, { merge: true });
+        await loadAllPlans();
+      } catch (e) { alert("Erro ao atualizar nome."); }
+      return;
+    }
+  };
+
+  const goBackToDashboard = async () => {
+    await loadAllPlans();
+    setViewState('dashboard');
+    setActivePlanId(null);
+    window.history.pushState({}, "", "/?admin=true");
+  };
+
+  // --- HELPERS E NAVEGAÇÃO ---
   const formatUrl = (url) => {
     if (!url) return '';
     const trimmed = url.trim();
     return (trimmed.startsWith('http://') || trimmed.startsWith('https://')) ? trimmed : `https://${trimmed}`;
   };
-
-  const handleNext = () => {
-    if (currentStep < steps.length - 1) { setCurrentStep(curr => curr + 1); window.scrollTo(0, 0); } else { setIsCompleted(true); }
-  };
-  const handlePrev = () => {
-    if (currentStep > 0) { setCurrentStep(curr => curr - 1); setIsCompleted(false); window.scrollTo(0, 0); }
-  };
-  const addStep = () => {
-    const newStep = { id: Date.now(), type: 'text', title: 'Nova Etapa', content: '...', buttonText: '', link: '', coverImage: null, coverPosition: 50, images: [], pdfData: null, pdfName: null };
-    setSteps([...steps, newStep]);
-    setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 100);
-  };
-  const removeStep = (index) => {
-    if (steps.length <= 1) return alert("Mínimo 1 etapa.");
-    const newSteps = [...steps]; newSteps.splice(index, 1); setSteps(newSteps);
-    if (currentStep >= newSteps.length) setCurrentStep(newSteps.length - 1);
-  };
-  const updateStep = (index, field, value) => {
-    const newSteps = [...steps]; newSteps[index] = { ...newSteps[index], [field]: value }; setSteps(newSteps);
-  };
-  const moveStep = (index, direction) => {
-    if ((direction === 'up' && index === 0) || (direction === 'down' && index === steps.length - 1)) return;
-    const newSteps = [...steps]; const temp = newSteps[index];
-    newSteps[index] = newSteps[index + (direction === 'up' ? -1 : 1)];
-    newSteps[index + (direction === 'up' ? -1 : 1)] = temp; setSteps(newSteps);
-  };
+  const handleNext = () => { if (currentStep < steps.length - 1) { setCurrentStep(curr => curr + 1); window.scrollTo(0, 0); } else { setIsCompleted(true); } };
+  const handlePrev = () => { if (currentStep > 0) { setCurrentStep(curr => curr - 1); setIsCompleted(false); window.scrollTo(0, 0); } };
   
-  // Upload da Capa (Cover)
-  const handleCoverUpload = (stepIndex, e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const newSteps = [...steps]; 
-        newSteps[stepIndex].coverImage = reader.result; 
-        newSteps[stepIndex].coverPosition = 50; // Resetar posição ao trocar imagem
-        setSteps(newSteps);
-      }; reader.readAsDataURL(file);
-    }
-  };
-  const removeCover = (stepIndex) => {
-    const newSteps = [...steps]; newSteps[stepIndex].coverImage = null; setSteps(newSteps);
-  };
+  // CRUD Steps
+  const addStep = () => { setSteps([...steps, { id: Date.now(), type: 'text', title: 'Nova Etapa', content: '...', buttonText: '', link: '', coverImage: null, coverPosition: 50, images: [] }]); setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 100); };
+  const removeStep = (index) => { if (steps.length <= 1) return alert("Mínimo 1 etapa."); const newSteps = [...steps]; newSteps.splice(index, 1); setSteps(newSteps); if (currentStep >= newSteps.length) setCurrentStep(newSteps.length - 1); };
+  const updateStep = (index, field, value) => { const newSteps = [...steps]; newSteps[index] = { ...newSteps[index], [field]: value }; setSteps(newSteps); };
+  const moveStep = (index, direction) => { if ((direction === 'up' && index === 0) || (direction === 'down' && index === steps.length - 1)) return; const newSteps = [...steps]; const temp = newSteps[index]; newSteps[index] = newSteps[index + (direction === 'up' ? -1 : 1)]; newSteps[index + (direction === 'up' ? -1 : 1)] = temp; setSteps(newSteps); };
+  
+  // Uploads
+  const handleCoverUpload = (idx, e) => { const file = e.target.files[0]; if(file) { const r = new FileReader(); r.onloadend = () => { const ns = [...steps]; ns[idx].coverImage = r.result; ns[idx].coverPosition = 50; setSteps(ns); }; r.readAsDataURL(file); } };
+  const removeCover = (idx) => { const ns = [...steps]; ns[idx].coverImage = null; setSteps(ns); };
+  const handleImageUpload = (idx, e) => { const file = e.target.files[0]; if(file) { const r = new FileReader(); r.onloadend = () => { const ns = [...steps]; if(!ns[idx].images) ns[idx].images=[]; ns[idx].images.push(r.result); setSteps(ns); }; r.readAsDataURL(file); } };
+  const removeImage = (idx, i) => { const ns = [...steps]; ns[idx].images = ns[idx].images.filter((_, x) => x !== i); setSteps(ns); };
+  const handlePdfUpload = (idx, e) => { const file = e.target.files[0]; if(file && file.type === 'application/pdf') { const r = new FileReader(); r.onloadend = () => { const ns = [...steps]; ns[idx].pdfData = r.result; ns[idx].pdfName = file.name; setSteps(ns); }; r.readAsDataURL(file); } else alert('Apenas PDF.'); };
+  const removePdf = (idx) => { const ns = [...steps]; ns[idx].pdfData = null; ns[idx].pdfName = null; setSteps(ns); };
 
-  const handleImageUpload = (stepIndex, e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const newSteps = [...steps]; if (!newSteps[stepIndex].images) newSteps[stepIndex].images = [];
-        newSteps[stepIndex].images.push(reader.result); setSteps(newSteps);
-      }; reader.readAsDataURL(file);
-    }
-  };
-  const removeImage = (stepIndex, imgIndex) => {
-    const newSteps = [...steps]; newSteps[stepIndex].images = newSteps[stepIndex].images.filter((_, i) => i !== imgIndex); setSteps(newSteps);
-  };
-  const handlePdfUpload = (stepIndex, e) => {
-    const file = e.target.files[0];
-    if (file && file.type === 'application/pdf') {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const newSteps = [...steps]; newSteps[stepIndex].pdfData = reader.result; newSteps[stepIndex].pdfName = file.name; setSteps(newSteps);
-      }; reader.readAsDataURL(file);
-    } else alert('Apenas PDF.');
-  };
-  const removePdf = (stepIndex) => {
-    const newSteps = [...steps]; newSteps[stepIndex].pdfData = null; newSteps[stepIndex].pdfName = null; setSteps(newSteps);
-  };
+  // --- RENDERIZAÇÃO ---
+  if (viewState === 'loading') return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5]"><Loader className="w-8 h-8 animate-spin text-gray-400"/></div>;
+  
+  if (viewState === 'error') return <div className="min-h-screen flex items-center justify-center text-gray-500">Link inválido.</div>;
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5]"><Loader className="w-8 h-8 animate-spin text-gray-400"/></div>;
+  if (viewState === 'dashboard') {
+    return (
+      <Dashboard 
+        plans={availablePlans} 
+        onSelectPlan={(id) => { setActivePlanId(id); loadPlan(id); setViewState('editor'); }} 
+        onCreatePlan={handleCreatePlan} 
+        onDeletePlan={handleDeletePlan}
+        onDuplicatePlan={handleDuplicatePlan} 
+        onUpdatePlanMeta={handleUpdatePlanMetadata} 
+      />
+    );
+  }
 
   const renderStepContent = (step) => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* CAPA (BANNER) - VISUALIZAÇÃO COM POSIÇÃO */}
       {step.coverImage && (
-        <div className="-mx-6 -mt-6 md:-mx-10 md:-mt-10 mb-6 relative group bg-gray-100">
+        <div className="-mx-6 -mt-6 md:-mx-10 md:-mt-10 mb-6 relative group bg-gray-50">
           <img 
             src={step.coverImage} 
             alt="Capa" 
-            className="w-full h-48 md:h-64 object-cover rounded-t-2xl shadow-sm transition-all duration-300" 
-            style={{ objectPosition: `center ${step.coverPosition || 50}%` }}
+            className="w-full h-auto object-contain rounded-t-2xl shadow-sm transition-all duration-300" 
           />
         </div>
       )}
-
       <h2 className="text-2xl font-bold text-gray-900">{step.title}</h2>
-      
-      <div 
-        className="text-lg text-gray-600 prose prose-gray max-w-none prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline" 
-        dangerouslySetInnerHTML={{ __html: step.content }} 
-      />
-
-      {/* GALERIA DE IMAGENS - COM CORREÇÃO DE TAMANHO NO PC */}
+      <div className="text-lg text-gray-600 prose prose-gray max-w-none prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline" dangerouslySetInnerHTML={{ __html: step.content }} />
       {step.images && step.images.length > 0 && (
         <div className={`grid gap-4 my-6 ${step.images.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}>
           {step.images.map((img, idx) => img && (
-            <img 
-              key={idx} 
-              src={img} 
-              alt="" 
-              className="rounded-xl w-full h-auto md:h-72 object-cover border border-gray-100 shadow-sm" 
-            />
+            <div key={idx} className="bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-center overflow-hidden h-72">
+                <img src={img} alt="" className="w-full h-full object-contain" />
+            </div>
           ))}
         </div>
       )}
-
       {(step.type === 'text' || step.type === 'welcome') && step.link && (
         <a href={formatUrl(step.link)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:underline font-medium mt-4">{step.buttonText || "Acessar Link"} <ExternalLink className="w-4 h-4"/></a>
       )}
@@ -263,10 +478,11 @@ const OnboardingConsultoria = () => {
     </div>
   );
 
-  if (!isEditorMode) {
+  // MODO ALUNO & PREVIEW
+  if (viewState === 'student') {
     if (isCompleted) return (
       <div className="min-h-screen bg-[#F7F7F5] flex flex-col items-center justify-center p-6 font-sans text-center relative">
-        {isAdminAccess && <button onClick={() => setIsEditorMode(true)} className="absolute top-4 right-4 p-2 bg-white text-gray-500 rounded-full hover:bg-gray-100 shadow-sm border border-gray-200 z-50"><Settings className="w-5 h-5"/></button>}
+        {isAdminAccess && <button onClick={() => setViewState('editor')} className="absolute top-4 right-4 p-2 bg-white text-gray-500 rounded-full hover:bg-gray-100 shadow-sm border border-gray-200 z-50"><Settings className="w-5 h-5"/></button>}
         <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-gray-100 animate-in zoom-in duration-500">
           <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6"><CheckCircle className="w-10 h-10"/></div>
           <h1 className="text-3xl font-bold text-gray-900 mb-4">{finalTitle}</h1>
@@ -278,23 +494,54 @@ const OnboardingConsultoria = () => {
     );
     return (
       <div className="min-h-screen bg-[#F7F7F5] font-sans text-gray-900 relative">
-        {isAdminAccess && <button onClick={() => setIsEditorMode(true)} className="fixed top-20 right-4 p-3 bg-black text-white rounded-full shadow-xl hover:bg-gray-800 z-50 flex items-center gap-2"><Settings className="w-5 h-5"/></button>}
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200"><div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white font-bold text-xs">ON</div><span className="font-semibold text-gray-700 hidden sm:block truncate max-w-[150px]">{coachName}</span></div><div className="flex items-center gap-3"><span className="text-xs font-medium text-gray-500">Etapa {currentStep + 1}/{steps.length}</span><div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden"><div className="h-full bg-black transition-all duration-500 ease-out" style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}></div></div></div></div></header>
-        <main className="max-w-6xl mx-auto px-4 py-8 md:py-12 pb-32"><div className="bg-white min-h-[400px] rounded-2xl shadow-sm border border-gray-200 p-6 md:p-10 mb-8 relative">{renderStepContent(steps[currentStep])}</div></main>
-        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4"><div className="max-w-6xl mx-auto flex items-center justify-between gap-4"><button onClick={handlePrev} disabled={currentStep === 0} className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${currentStep === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}><ChevronLeft className="w-5 h-5"/><span className="hidden sm:inline">Anterior</span></button><button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl active:scale-95"><span>{currentStep === steps.length - 1 ? 'Concluir' : 'Próximo'}</span><ChevronRight className="w-5 h-5"/></button></div></footer>
+        {isAdminAccess && <button onClick={() => setViewState('editor')} className="fixed top-20 right-4 p-3 bg-black text-white rounded-full shadow-xl hover:bg-gray-800 z-50 flex items-center gap-2"><Settings className="w-5 h-5"/></button>}
+        
+        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200">
+          <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-black rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-lg">ON</div>
+              <div>
+                <h1 className="text-sm font-bold text-gray-900 leading-tight">Onboarding</h1>
+                <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-gray-500">Etapa {currentStep + 1}/{steps.length}</span>
+              <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-black transition-all duration-500 ease-out" style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}></div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-6xl mx-auto px-4 py-8 md:py-12 pb-32">
+          <div className="bg-white min-h-[400px] rounded-2xl shadow-sm border border-gray-200 p-6 md:p-10 mb-8 relative">
+            {renderStepContent(steps[currentStep])}
+          </div>
+        </main>
+        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+            <button onClick={handlePrev} disabled={currentStep === 0} className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${currentStep === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}><ChevronLeft className="w-5 h-5"/><span className="hidden sm:inline">Anterior</span></button>
+            <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl active:scale-95"><span>{currentStep === steps.length - 1 ? 'Concluir' : 'Próximo'}</span><ChevronRight className="w-5 h-5"/></button>
+          </div>
+        </footer>
       </div>
     );
   }
 
-  // --- MODO EDITOR ---
+  // MODO EDITOR
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 pb-20">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-gray-800"><Layout className="w-5 h-5 text-blue-600" /><h1 className="font-bold text-lg hidden sm:block">Construtor de Onboarding</h1></div>
+          <div className="flex items-center gap-2 text-gray-800">
+             <button onClick={goBackToDashboard} className="p-2 hover:bg-gray-100 rounded-full mr-2" title="Voltar aos Planos"><ArrowLeft className="w-5 h-5"/></button>
+             <h1 className="font-bold text-lg hidden sm:block">Editando: <span className="text-blue-600">{activePlanId}</span></h1>
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={handleSaveToCloud} disabled={isSaving} className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors shadow-sm ${isSaving ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>{isSaving ? <Loader className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} <span className="hidden sm:inline">{isSaving ? "Salvando..." : "Salvar no Site"}</span></button>
-            <button onClick={() => {setCurrentStep(0); setIsCompleted(false); setIsEditorMode(false);}} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"><Eye className="w-4 h-4" /> <span className="hidden sm:inline">Ver Site</span></button>
+            <button onClick={() => {setCurrentStep(0); setIsCompleted(false); setViewState('student');}} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"><Eye className="w-4 h-4" /> <span className="hidden sm:inline">Testar</span></button>
           </div>
         </div>
       </header>
@@ -307,49 +554,19 @@ const OnboardingConsultoria = () => {
             <div key={step.id} className="group bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all hover:shadow-md">
               <div className="bg-gray-50 p-3 border-b border-gray-100 flex items-center justify-between"><div className="flex items-center gap-3"><span className="w-6 h-6 flex items-center justify-center bg-gray-200 rounded text-xs font-bold text-gray-600">{index + 1}</span><span className="font-semibold text-gray-700 text-sm truncate max-w-[120px] sm:max-w-none">{step.title}</span><span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-bold uppercase tracking-wide hidden sm:inline">{step.type}</span></div><div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity"><button onClick={() => moveStep(index, 'up')} className="p-1 hover:bg-gray-200 rounded"><MoveUp className="w-4 h-4"/></button><button onClick={() => moveStep(index, 'down')} className="p-1 hover:bg-gray-200 rounded"><MoveDown className="w-4 h-4"/></button><button onClick={() => removeStep(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button></div></div>
               
-              {/* ÁREA DE EDIÇÃO DO CARD */}
               <div className="p-5 grid gap-4">
-                
-                {/* 1. UPLOAD DA CAPA COM REPOSICIONAMENTO */}
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Imagem de Capa (Horizontal)</label>
                   {!step.coverImage ? (
                     <label className="cursor-pointer flex flex-col items-center justify-center h-24 rounded-lg border-2 border-dashed border-gray-300 hover:border-blue-500 bg-white transition-colors">
-                      <ImageIcon className="w-6 h-6 text-gray-400 mb-2" />
-                      <span className="text-xs text-gray-500 font-medium">Carregar Capa</span>
-                      <input type="file" accept="image/*" className="hidden" onChange={(e) => handleCoverUpload(index, e)}/>
+                      <ImageIcon className="w-6 h-6 text-gray-400 mb-2" /><span className="text-xs text-gray-500 font-medium">Carregar Capa</span><input type="file" accept="image/*" className="hidden" onChange={(e) => handleCoverUpload(index, e)}/>
                     </label>
                   ) : (
                     <div className="space-y-3">
-                       <div className="relative rounded-lg overflow-hidden border border-gray-200 group bg-gray-100">
-                          <img 
-                            src={step.coverImage} 
-                            alt="Capa" 
-                            className="w-full h-32 object-cover transition-all"
-                            style={{ objectPosition: `center ${step.coverPosition || 50}%` }}
-                          />
-                          <button onClick={() => removeCover(index)} className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4"/></button>
-                       </div>
-                       
-                       {/* CONTROLE DESLIZANTE DE POSIÇÃO */}
-                       <div className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
-                          <MoveVertical className="w-4 h-4 text-gray-400" />
-                          <div className="flex-1">
-                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Ajustar Posição Vertical</label>
-                             <input 
-                               type="range" 
-                               min="0" 
-                               max="100" 
-                               value={step.coverPosition || 50} 
-                               onChange={(e) => updateStep(index, 'coverPosition', e.target.value)}
-                               className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                             />
-                          </div>
-                          <span className="text-xs text-gray-500 w-8 text-right">{step.coverPosition || 50}%</span>
-                       </div>
+                       <div className="relative rounded-lg overflow-hidden border border-gray-200 group bg-gray-100"><img src={step.coverImage} alt="Capa" className="w-full h-32 object-contain transition-all" style={{ objectPosition: `center ${step.coverPosition || 50}%` }}/><button onClick={() => removeCover(index)} className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4"/></button></div>
+                       <div className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200"><MoveVertical className="w-4 h-4 text-gray-400" /><div className="flex-1"><label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Ajustar Posição Vertical</label><input type="range" min="0" max="100" value={step.coverPosition || 50} onChange={(e) => updateStep(index, 'coverPosition', e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"/></div><span className="text-xs text-gray-500 w-8 text-right">{step.coverPosition || 50}%</span></div>
                     </div>
                   )}
-                  <p className="text-[10px] text-gray-400 mt-2">Dica: Use a barrinha para mover a foto para cima ou para baixo.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -361,7 +578,7 @@ const OnboardingConsultoria = () => {
                 <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><ImageIcon className="w-4 h-4" /> Galeria (Fotos Extras)</label>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {step.images && step.images.map((imgUrl, imgIndex) => (<div key={imgIndex} className="relative group aspect-square bg-white rounded-lg border border-gray-200 overflow-hidden"><img src={imgUrl} alt="" className="w-full h-full object-cover" /><button onClick={() => removeImage(index, imgIndex)} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3 h-3" /></button></div>))}
+                    {step.images && step.images.map((imgUrl, imgIndex) => (<div key={imgIndex} className="relative group aspect-square bg-white rounded-lg border border-gray-200 overflow-hidden"><img src={imgUrl} alt="" className="w-full h-full object-contain" /><button onClick={() => removeImage(index, imgIndex)} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3 h-3" /></button></div>))}
                     <label className="cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-gray-300 hover:border-blue-500 bg-white"><Upload className="w-6 h-6 text-gray-400 mb-2" /><span className="text-xs text-gray-500 font-medium">Add Imagem</span><input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(index, e)}/></label>
                   </div>
                 </div>
