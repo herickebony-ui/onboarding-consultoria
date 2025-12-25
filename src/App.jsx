@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
 import { 
   Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
   ExternalLink, Play, Settings, Plus, Trash2, Layout, Eye, MoveUp, MoveDown, 
   Image as ImageIcon, Upload, Bold, Italic, Underline, Link as LinkIcon, 
-  Monitor, Loader, ArrowLeft, Edit, Save, X
+  Monitor, Loader, ArrowLeft, Edit, Save, X, Lock, Users, Share2, Search
 } from 'lucide-react';
 
 // --- ⚠️ CONFIGURAÇÃO DO FIREBASE ---
@@ -75,37 +75,47 @@ const RichTextEditor = ({ value, onChange }) => {
         <button onClick={() => execCmd('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Underline className="w-4 h-4" /></button>
         <div className="w-px h-4 bg-gray-300 mx-1"></div>
         <button onClick={addLink} className="p-1.5 hover:bg-blue-100 text-blue-600 rounded" title="Inserir Link Personalizado"><LinkIcon className="w-4 h-4" /></button>
-        <div className="w-px h-4 bg-gray-300 mx-1"></div>
-        <button onClick={() => execCmd('foreColor', '#000000')} className="w-5 h-5 rounded-full bg-black border border-gray-200"></button>
-        <button onClick={() => execCmd('foreColor', '#2563eb')} className="w-5 h-5 rounded-full bg-blue-600 border border-gray-200"></button>
-        <button onClick={() => execCmd('foreColor', '#dc2626')} className="w-5 h-5 rounded-full bg-red-600 border border-gray-200"></button>
       </div>
       <div ref={editorRef} contentEditable className="p-3 min-h-[100px] text-sm text-gray-800 focus:outline-none prose prose-sm max-w-none" onInput={(e) => onChange(e.currentTarget.innerHTML)} onBlur={(e) => onChange(e.currentTarget.innerHTML)}></div>
     </div>
   );
 };
 
-// --- COMPONENTE DASHBOARD ---
-const Dashboard = ({ onSelectPlan, onCreatePlan, plans, onDeletePlan, onDuplicatePlan, onUpdatePlanMeta }) => {
+// --- COMPONENTE DASHBOARD (ADMIN) ---
+const Dashboard = ({ onSelectPlan, onCreatePlan, plans, onDeletePlan, onDuplicatePlan, onUpdatePlanMeta, students, onCreateStudent, onDeleteStudent }) => {
+  const [activeTab, setActiveTab] = useState('flows'); // 'flows' ou 'students'
+  
+  // Estados para Fluxos
   const [newPlanName, setNewPlanName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-
-  // Estados para Edição de Nome
   const [editingPlan, setEditingPlan] = useState(null); 
   const [editName, setEditName] = useState("");
-
-  // Estados para Duplicação (NOVO)
   const [duplicatingPlan, setDuplicatingPlan] = useState(null);
   const [duplicateName, setDuplicateName] = useState("");
 
+  // Estados para Alunos (NOVO)
+  const [isInviting, setIsInviting] = useState(false);
+  const [newStudentName, setNewStudentName] = useState("");
+  const [newStudentPhone, setNewStudentPhone] = useState("");
+  const [selectedPlanForStudent, setSelectedPlanForStudent] = useState("");
+  const [contractText, setContractText] = useState(`CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA ONLINE
+
+Pelo presente instrumento particular, de um lado EBONY TEAM, e de outro lado O(A) ALUNO(A) identificado(a) no cadastro deste sistema.
+
+1. DO OBJETO
+O presente contrato tem por objeto a prestação de serviços de consultoria esportiva online...
+
+2. DA VIGÊNCIA
+O presente contrato terá vigência de acordo com o plano contratado...
+
+(Edite este texto conforme necessário para este aluno específico)`);
+
+  // -- AÇÕES DE FLUXO --
   const handleCreate = () => {
     if(!newPlanName) return;
     const id = generateSlug(newPlanName);
     const exists = plans.some(p => p.id === id);
-    if(exists) {
-      alert("Já existe um fluxo com este nome/ID. Tente um nome diferente.");
-      return;
-    }
+    if(exists) { alert("Já existe um fluxo com este nome/ID."); return; }
     onCreatePlan(id, newPlanName);
   };
 
@@ -115,139 +125,289 @@ const Dashboard = ({ onSelectPlan, onCreatePlan, plans, onDeletePlan, onDuplicat
     alert("Link copiado: " + url);
   };
 
-  // -- Edição --
-  const openEditModal = (plan) => {
-    setEditingPlan(plan);
-    setEditName(plan.name || plan.id);
-  };
-
   const saveEdit = () => {
-    if (!editName) return alert("O nome é obrigatório");
+    if (!editName) return alert("Nome obrigatório");
     onUpdatePlanMeta(editingPlan.id, editingPlan.id, editName);
     setEditingPlan(null);
   };
 
-  // -- Duplicação (NOVO FLUXO) --
-  const openDuplicateModal = (plan) => {
-    setDuplicatingPlan(plan);
-    setDuplicateName(`${plan.name} (Cópia)`);
-  };
-
   const confirmDuplicate = () => {
-    if (!duplicateName) return alert("O nome da cópia é obrigatório");
+    if (!duplicateName) return alert("Nome da cópia obrigatório");
     onDuplicatePlan(duplicatingPlan.id, duplicateName);
     setDuplicatingPlan(null);
   };
 
+  // -- AÇÕES DE ALUNO (NOVO) --
+  const handleCreateInvite = () => {
+    if (!newStudentName || !newStudentPhone || !selectedPlanForStudent) {
+      alert("Preencha Nome, WhatsApp e escolha um Fluxo.");
+      return;
+    }
+    onCreateStudent({
+      name: newStudentName,
+      phone: newStudentPhone.replace(/\D/g, ''), // Remove formatação, deixa só números
+      planId: selectedPlanForStudent,
+      contractText: contractText,
+      status: 'pending', // pending, signed
+      createdAt: new Date().toISOString()
+    });
+    setIsInviting(false);
+    setNewStudentName("");
+    setNewStudentPhone("");
+  };
+
+  const copyStudentLink = (studentId) => {
+    const url = `${window.location.origin}/?token=${studentId}`;
+    navigator.clipboard.writeText(url);
+    alert("Link do Convite copiado! Envie para o aluno:\n" + url);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-6 font-sans">
-      <div className="max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Meus Fluxos de Onboarding</h1>
-        <p className="text-gray-500 mb-8">Gerencie os diferentes tipos de consultoria que você oferece.</p>
-
-        {/* MODAL EDITAR NOME */}
-        {editingPlan && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
-              <h2 className="text-xl font-bold mb-4">Renomear Fluxo</h2>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Novo Nome</label>
-              <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full p-2 border border-gray-300 rounded mb-6"/>
-              <div className="flex gap-2 justify-end">
-                <button onClick={() => setEditingPlan(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
-                <button onClick={saveEdit} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Salvar</button>
-              </div>
-            </div>
+      <div className="max-w-6xl mx-auto">
+        
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Painel Ebony</h1>
+            <p className="text-gray-500">Gestão de Consultoria</p>
           </div>
-        )}
-
-        {/* MODAL DUPLICAR (NOVO) */}
-        {duplicatingPlan && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
-              <h2 className="text-xl font-bold mb-2">Duplicar Fluxo</h2>
-              <p className="text-sm text-gray-500 mb-4">Isso criará uma cópia idêntica de <b>{duplicatingPlan.name}</b>. Defina o nome da nova cópia:</p>
-              
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Cópia</label>
-              <input 
-                autoFocus
-                type="text" 
-                value={duplicateName} 
-                onChange={(e) => setDuplicateName(e.target.value)} 
-                className="w-full p-2 border border-gray-300 rounded mb-2"
-              />
-              <p className="text-xs text-gray-400 mb-6 font-mono bg-gray-50 p-1 rounded inline-block">
-                ID será: {generateSlug(duplicateName || 'novo-id')}
-              </p>
-
-              <div className="flex gap-2 justify-end">
-                <button onClick={() => setDuplicatingPlan(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
-                <button onClick={confirmDuplicate} className="px-4 py-2 bg-black text-white rounded font-bold hover:bg-gray-800 flex items-center gap-2">
-                  <Copy className="w-4 h-4"/> Duplicar Agora
-                </button>
-              </div>
-            </div>
+          
+          {/* Menu de Abas */}
+          <div className="bg-white p-1 rounded-xl border border-gray-200 flex shadow-sm">
+            <button 
+              onClick={() => setActiveTab('flows')}
+              className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'flows' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+              Meus Fluxos
+            </button>
+            <button 
+              onClick={() => setActiveTab('students')}
+              className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'students' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+              <Users className="w-4 h-4"/> Meus Alunos
+            </button>
           </div>
-        )}
+        </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {/* Card Criar Novo */}
-          <div className="bg-white p-6 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-center hover:border-blue-500 transition-colors min-h-[200px]">
-            {!isCreating ? (
-              <button onClick={() => setIsCreating(true)} className="flex flex-col items-center gap-2 w-full h-full py-8">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center"><Plus className="w-6 h-6"/></div>
-                <span className="font-bold text-gray-700">Criar Novo Fluxo</span>
-              </button>
-            ) : (
-              <div className="w-full animate-in fade-in">
-                <label className="block text-xs font-bold text-left text-gray-500 mb-1">Nome do Plano</label>
-                <input autoFocus type="text" placeholder="Ex: Hipertrofia A" className="w-full p-2 border border-gray-300 rounded mb-3 text-sm" value={newPlanName} onChange={e => setNewPlanName(e.target.value)} />
-                <div className="flex gap-2">
-                  <button onClick={handleCreate} className="flex-1 bg-black text-white py-2 rounded text-sm font-bold">Criar</button>
-                  <button onClick={() => setIsCreating(false)} className="px-3 bg-gray-100 rounded text-sm font-bold">X</button>
+        {/* --- ABA: MEUS FLUXOS --- */}
+        {activeTab === 'flows' && (
+          <div className="animate-in fade-in duration-300">
+            {/* ... Modais de Edição/Duplicação (Mantidos) ... */}
+            {editingPlan && (
+              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+                  <h2 className="text-xl font-bold mb-4">Renomear Fluxo</h2>
+                  <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full p-2 border border-gray-300 rounded mb-6"/>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setEditingPlan(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                    <button onClick={saveEdit} className="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700">Salvar</button>
+                  </div>
                 </div>
               </div>
             )}
-          </div>
+            {duplicatingPlan && (
+              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+                  <h2 className="text-xl font-bold mb-2">Duplicar Fluxo</h2>
+                  <input autoFocus type="text" value={duplicateName} onChange={(e) => setDuplicateName(e.target.value)} className="w-full p-2 border border-gray-300 rounded mb-2"/>
+                  <p className="text-xs text-gray-400 mb-6 font-mono">ID será: {generateSlug(duplicateName || 'novo-id')}</p>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setDuplicatingPlan(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                    <button onClick={confirmDuplicate} className="px-4 py-2 bg-black text-white rounded font-bold hover:bg-gray-800 flex items-center gap-2"><Copy className="w-4 h-4"/> Duplicar</button>
+                  </div>
+                </div>
+              </div>
+            )}
 
-          {/* Lista de Planos */}
-          {plans.map((plan) => (
-            <div key={plan.id} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow relative group flex flex-col justify-between min-h-[200px]">
-              <div>
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-bold text-lg text-gray-900 leading-tight">{plan.name || plan.id}</h3>
-                  <button onClick={() => openEditModal(plan)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Renomear Fluxo"><Edit className="w-4 h-4" /></button>
-                </div>
-                <p className="text-xs text-gray-400 font-mono mb-6 bg-gray-50 inline-block px-2 py-1 rounded">ID: {plan.id}</p>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="bg-white p-6 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-center hover:border-blue-500 transition-colors min-h-[200px]">
+                {!isCreating ? (
+                  <button onClick={() => setIsCreating(true)} className="flex flex-col items-center gap-2 w-full h-full py-8">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center"><Plus className="w-6 h-6"/></div>
+                    <span className="font-bold text-gray-700">Criar Novo Fluxo</span>
+                  </button>
+                ) : (
+                  <div className="w-full animate-in fade-in">
+                    <input autoFocus type="text" placeholder="Nome do Fluxo" className="w-full p-2 border border-gray-300 rounded mb-3 text-sm" value={newPlanName} onChange={e => setNewPlanName(e.target.value)} />
+                    <div className="flex gap-2">
+                      <button onClick={handleCreate} className="flex-1 bg-black text-white py-2 rounded text-sm font-bold">Criar</button>
+                      <button onClick={() => setIsCreating(false)} className="px-3 bg-gray-100 rounded text-sm font-bold">X</button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="space-y-2">
-                <button onClick={() => onSelectPlan(plan.id)} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center justify-center gap-2"><Settings className="w-4 h-4"/> Editar Fluxo</button>
-                <div className="flex gap-2">
-                  <button onClick={() => copyLink(plan.id)} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2" title="Copiar Link"><LinkIcon className="w-4 h-4"/> Link</button>
-                  {/* Botão Duplicar agora abre o Modal */}
-                  <button onClick={() => openDuplicateModal(plan)} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2" title="Duplicar Fluxo"><Copy className="w-4 h-4"/> Duplicar</button>
+              {plans.map((plan) => (
+                <div key={plan.id} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow relative group flex flex-col justify-between min-h-[200px]">
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-bold text-lg text-gray-900 leading-tight">{plan.name || plan.id}</h3>
+                      <button onClick={() => {setEditingPlan(plan); setEditName(plan.name || plan.id)}} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit className="w-4 h-4" /></button>
+                    </div>
+                    <p className="text-xs text-gray-400 font-mono mb-6 bg-gray-50 inline-block px-2 py-1 rounded">ID: {plan.id}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <button onClick={() => onSelectPlan(plan.id)} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center justify-center gap-2"><Settings className="w-4 h-4"/> Editar Fluxo</button>
+                    <div className="flex gap-2">
+                      <button onClick={() => copyLink(plan.id)} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2" title="Link Direto (Antigo)"><LinkIcon className="w-4 h-4"/> Link</button>
+                      <button onClick={() => {setDuplicatingPlan(plan); setDuplicateName(`${plan.name} (Cópia)`)}} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2"><Copy className="w-4 h-4"/> Duplicar</button>
+                    </div>
+                  </div>
+                  <button onClick={() => {if(confirm('Tem certeza?')) onDeletePlan(plan.id)}} className="absolute -top-2 -right-2 p-2 bg-white border border-gray-200 shadow-sm rounded-full text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"><Trash2 className="w-4 h-4" /></button>
                 </div>
-              </div>
-              <button onClick={() => {if(confirm('Tem certeza? Isso apagará este fluxo para sempre.')) onDeletePlan(plan.id)}} className="absolute -top-2 -right-2 p-2 bg-white border border-gray-200 shadow-sm rounded-full text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"><Trash2 className="w-4 h-4" /></button>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
+
+        {/* --- ABA: MEUS ALUNOS (NOVA) --- */}
+        {activeTab === 'students' && (
+          <div className="animate-in fade-in duration-300">
+            
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-800">Lista de Alunos</h2>
+              <button onClick={() => setIsInviting(true)} className="bg-black text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-800 transition-colors shadow-lg">
+                <Plus className="w-5 h-5" /> Novo Aluno
+              </button>
+            </div>
+
+            {/* Modal Novo Aluno */}
+            {isInviting && (
+              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+                  <div className="p-6 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white z-10">
+                    <h2 className="text-xl font-bold">Novo Convite de Aluno</h2>
+                    <button onClick={() => setIsInviting(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5"/></button>
+                  </div>
+                  
+                  <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Nome do Aluno</label>
+                        <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:border-black" placeholder="Ex: João da Silva"/>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">WhatsApp (Será a Senha)</label>
+                        <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:border-black" placeholder="Ex: 11999998888"/>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Fluxo de Treino (O que ele vai receber)</label>
+                      <select value={selectedPlanForStudent} onChange={(e) => setSelectedPlanForStudent(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:border-black bg-white">
+                        <option value="">Selecione um fluxo...</option>
+                        {plans.map(p => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Minuta do Contrato</label>
+                      <p className="text-xs text-gray-500 mb-2">Este é o texto que aparecerá para o aluno assinar. Os dados pessoais serão preenchidos automaticamente.</p>
+                      <textarea 
+                        value={contractText} 
+                        onChange={(e) => setContractText(e.target.value)} 
+                        className="w-full h-64 p-4 border border-gray-300 rounded-lg outline-none focus:border-black text-sm font-mono leading-relaxed resize-y"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 sticky bottom-0">
+                    <button onClick={() => setIsInviting(false)} className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-lg">Cancelar</button>
+                    <button onClick={handleCreateInvite} className="px-6 py-3 bg-black text-white font-bold rounded-lg hover:bg-gray-800 shadow-md">Gerar Convite</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Lista de Alunos */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              {students.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">
+                  <Users className="w-12 h-12 mx-auto mb-3 opacity-20"/>
+                  <p>Nenhum aluno cadastrado ainda.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Aluno</th>
+                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Fluxo</th>
+                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Status</th>
+                        <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {students.map((student) => (
+                        <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="p-4">
+                            <div className="font-bold text-gray-900">{student.name}</div>
+                            <div className="text-xs text-gray-400">{student.phone}</div>
+                          </td>
+                          <td className="p-4">
+                            <span className="bg-gray-100 text-gray-600 py-1 px-2 rounded text-xs font-medium">
+                              {plans.find(p => p.id === student.planId)?.name || student.planId}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            {student.status === 'signed' ? (
+                              <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 py-1 px-2 rounded-full text-xs font-bold border border-green-200">
+                                <CheckCircle className="w-3 h-3"/> Assinado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-700 py-1 px-2 rounded-full text-xs font-bold border border-yellow-200">
+                                <Loader className="w-3 h-3"/> Pendente
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-right flex justify-end gap-2">
+                            <button 
+                              onClick={() => copyStudentLink(student.id)} 
+                              className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                              title="Copiar Link do Convite"
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => {if(confirm('Remover aluno?')) onDeleteStudent(student.id)}} 
+                              className="p-2 border border-gray-200 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   )
 }
 
 const OnboardingConsultoria = () => {
-  const [viewState, setViewState] = useState('loading'); 
+  const [viewState, setViewState] = useState('loading'); // loading, login, dashboard, editor, student
   const [isAdminAccess, setIsAdminAccess] = useState(false);
   const [activePlanId, setActivePlanId] = useState(null);
   const [availablePlans, setAvailablePlans] = useState([]);
   
-  // Estados do Editor
+  // Lista de Alunos (Estado Global)
+  const [students, setStudents] = useState([]);
+  
+  // Login State
+  const [passwordInput, setPasswordInput] = useState("");
+  const ADMIN_PASSWORD = "ebony"; 
+
+  // Editor State
   const [isSaving, setIsSaving] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
   
-  // Dados do Fluxo
+  // Fluxo
   const [coachName, setCoachName] = useState("Sua Consultoria");
   const [whatsappLink, setWhatsappLink] = useState("https://wa.me/");
   const [finalTitle, setFinalTitle] = useState("Tudo Pronto! 🎉");
@@ -255,7 +415,6 @@ const OnboardingConsultoria = () => {
   const [finalButtonText, setFinalButtonText] = useState("Falar com o Treinador");
   const [steps, setSteps] = useState([]);
 
-  // Default
   const defaultSteps = [{ id: 1, type: 'welcome', title: 'Boas-vindas', content: 'Bem-vindo ao time!', buttonText: '', link: '', coverImage: null, coverPosition: 50, images: [] }];
 
   useEffect(() => {
@@ -268,29 +427,75 @@ const OnboardingConsultoria = () => {
 
     const init = async () => {
       const params = new URLSearchParams(window.location.search);
-      const urlId = params.get('id');
-      const isAdmin = params.get('admin') === 'true';
+      const urlId = params.get('id');       // Link antigo (legado)
+      const urlToken = params.get('token'); // NOVO: Link do Aluno
+      const urlAdmin = params.get('admin');
 
-      setIsAdminAccess(isAdmin);
-
-      if (urlId) {
+      if (urlToken) {
+        // LÓGICA DO ALUNO (FUTURA)
+        // Por enquanto, apenas mostraremos que o link funciona
+        // Na próxima etapa, aqui entra a verificação do contrato
+        alert("Link do aluno detectado: " + urlToken + ". (Próxima etapa: Tela de Assinatura)");
+        setViewState('loading'); // Placeholder
+      } else if (urlId) {
+        // Link antigo direto (pode manter ou remover depois)
         await loadPlan(urlId);
         setActivePlanId(urlId);
-        setViewState(isAdmin ? 'editor' : 'student');
-      } else if (isAdmin) {
-        await loadAllPlans();
+        setViewState('student');
+      } else if (urlAdmin === 'true') {
+        setIsAdminAccess(true);
+        await Promise.all([loadAllPlans(), loadAllStudents()]);
         setViewState('dashboard');
       } else {
-        alert("Link incompleto. Por favor, use o link fornecido pelo seu treinador.");
-        setViewState('error');
+        setViewState('login');
       }
     };
 
     init();
   }, []);
 
-  // --- FUNÇÕES DE BANCO DE DADOS ---
+  const handleLogin = async () => {
+    if (passwordInput === ADMIN_PASSWORD) {
+      setIsAdminAccess(true);
+      await Promise.all([loadAllPlans(), loadAllStudents()]);
+      setViewState('dashboard');
+    } else {
+      alert("Senha incorreta.");
+    }
+  };
 
+  // --- FIRESTORE ALUNOS (NOVO) ---
+  const loadAllStudents = async () => {
+    if (!db) return;
+    try {
+      const q = await getDocs(collection(db, "students"));
+      const list = q.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Ordenar por data (mais recente primeiro) se houver campo date
+      setStudents(list);
+    } catch (e) { console.error("Erro alunos", e); }
+  };
+
+  const handleCreateStudent = async (studentData) => {
+    if (!db) return;
+    try {
+      // Cria documento com ID automático
+      const docRef = doc(collection(db, "students")); 
+      const finalData = { ...studentData, id: docRef.id };
+      await setDoc(docRef, finalData);
+      await loadAllStudents();
+      alert("Convite criado com sucesso!");
+    } catch (e) { console.error(e); alert("Erro ao criar convite"); }
+  };
+
+  const handleDeleteStudent = async (id) => {
+    if (!db) return;
+    try {
+      await deleteDoc(doc(db, "students", id));
+      await loadAllStudents();
+    } catch (e) { alert("Erro ao deletar"); }
+  }
+
+  // --- FIRESTORE PLANOS ---
   const loadAllPlans = async () => {
     if (!db) return;
     try {
@@ -347,32 +552,21 @@ const OnboardingConsultoria = () => {
     } catch (e) { alert("Erro ao deletar"); }
   };
 
-  // --- DUPLICAR PLANO COM NOME ESPECÍFICO ---
   const handleDuplicatePlan = async (originalId, customName) => {
     if(!db) return;
     const originalPlan = availablePlans.find(p => p.id === originalId);
     if (!originalPlan) return;
-
-    // Gera ID baseado no nome escolhido pelo usuário
     let newId = generateSlug(customName);
-    
     if (availablePlans.some(p => p.id === newId)) {
-        alert("Já existe um fluxo com este ID (nome). Adicionando sufixo...");
         newId = `${newId}-${Math.floor(Math.random() * 100)}`;
     }
-
     const { id, ...dataToSave } = originalPlan;
-    // Usa o nome customizado
     const newPlanData = { ...dataToSave, name: customName };
-
     try {
       await setDoc(doc(db, "onboarding", newId), newPlanData);
       alert("Fluxo duplicado com sucesso!");
       await loadAllPlans();
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao duplicar: " + e.message);
-    }
+    } catch (e) { console.error(e); alert("Erro ao duplicar"); }
   };
 
   const handleUpdatePlanMetadata = async (oldId, newId, newName) => {
@@ -382,7 +576,6 @@ const OnboardingConsultoria = () => {
         await setDoc(doc(db, "onboarding", oldId), { name: newName }, { merge: true });
         await loadAllPlans();
       } catch (e) { alert("Erro ao atualizar nome."); }
-      return;
     }
   };
 
@@ -390,7 +583,7 @@ const OnboardingConsultoria = () => {
     await loadAllPlans();
     setViewState('dashboard');
     setActivePlanId(null);
-    window.history.pushState({}, "", "/?admin=true");
+    window.history.pushState({}, "", "/");
   };
 
   // --- HELPERS E NAVEGAÇÃO ---
@@ -408,7 +601,7 @@ const OnboardingConsultoria = () => {
   const updateStep = (index, field, value) => { const newSteps = [...steps]; newSteps[index] = { ...newSteps[index], [field]: value }; setSteps(newSteps); };
   const moveStep = (index, direction) => { if ((direction === 'up' && index === 0) || (direction === 'down' && index === steps.length - 1)) return; const newSteps = [...steps]; const temp = newSteps[index]; newSteps[index] = newSteps[index + (direction === 'up' ? -1 : 1)]; newSteps[index + (direction === 'up' ? -1 : 1)] = temp; setSteps(newSteps); };
   
-  // Uploads
+  // Uploads (Mantidos)
   const handleCoverUpload = (idx, e) => { const file = e.target.files[0]; if(file) { const r = new FileReader(); r.onloadend = () => { const ns = [...steps]; ns[idx].coverImage = r.result; ns[idx].coverPosition = 50; setSteps(ns); }; r.readAsDataURL(file); } };
   const removeCover = (idx) => { const ns = [...steps]; ns[idx].coverImage = null; setSteps(ns); };
   const handleImageUpload = (idx, e) => { const file = e.target.files[0]; if(file) { const r = new FileReader(); r.onloadend = () => { const ns = [...steps]; if(!ns[idx].images) ns[idx].images=[]; ns[idx].images.push(r.result); setSteps(ns); }; r.readAsDataURL(file); } };
@@ -419,6 +612,52 @@ const OnboardingConsultoria = () => {
   // --- RENDERIZAÇÃO ---
   if (viewState === 'loading') return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5]"><Loader className="w-8 h-8 animate-spin text-gray-400"/></div>;
   
+  if (viewState === 'login') return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#F7F7F5] p-4 font-sans">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-500">
+        <div className="bg-black p-8 text-center">
+          <div className="w-14 h-14 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center mx-auto mb-4 shadow-inner">
+            <span className="text-white font-bold text-lg tracking-wider">ON</span>
+          </div>
+          <h2 className="text-white text-lg font-bold">Painel Ebony</h2>
+          <p className="text-gray-400 text-xs mt-1 uppercase tracking-widest opacity-80">Acesso Administrativo</p>
+        </div>
+        <div className="p-8 pt-10">
+          <div className="space-y-5">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">Senha de Acesso</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Lock className="h-5 w-5 text-gray-300 group-focus-within:text-black transition-colors" />
+                </div>
+                <input 
+                  type="password" 
+                  autoFocus
+                  placeholder="••••••••"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-black focus:border-transparent transition-all duration-200"
+                />
+              </div>
+            </div>
+            <button 
+              onClick={handleLogin} 
+              className="w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 transition-all transform active:scale-[0.98]"
+            >
+              Entrar no Sistema
+              <ArrowLeft className="w-4 h-4 ml-2 rotate-180" />
+            </button>
+          </div>
+        </div>
+        <div className="bg-gray-50 px-8 py-4 border-t border-gray-100 text-center">
+          <p className="text-[10px] text-gray-400">Área restrita para treinadores.</p>
+        </div>
+      </div>
+      <p className="mt-8 text-xs text-gray-400 font-medium opacity-50">Consultoria Ebony Team © 2025</p>
+    </div>
+  );
+
   if (viewState === 'error') return <div className="min-h-screen flex items-center justify-center text-gray-500">Link inválido.</div>;
 
   if (viewState === 'dashboard') {
@@ -429,7 +668,10 @@ const OnboardingConsultoria = () => {
         onCreatePlan={handleCreatePlan} 
         onDeletePlan={handleDeletePlan}
         onDuplicatePlan={handleDuplicatePlan} 
-        onUpdatePlanMeta={handleUpdatePlanMetadata} 
+        onUpdatePlanMeta={handleUpdatePlanMetadata}
+        students={students}
+        onCreateStudent={handleCreateStudent}
+        onDeleteStudent={handleDeleteStudent}
       />
     );
   }
@@ -478,7 +720,6 @@ const OnboardingConsultoria = () => {
     </div>
   );
 
-  // MODO ALUNO & PREVIEW
   if (viewState === 'student') {
     if (isCompleted) return (
       <div className="min-h-screen bg-[#F7F7F5] flex flex-col items-center justify-center p-6 font-sans text-center relative">
@@ -495,7 +736,6 @@ const OnboardingConsultoria = () => {
     return (
       <div className="min-h-screen bg-[#F7F7F5] font-sans text-gray-900 relative">
         {isAdminAccess && <button onClick={() => setViewState('editor')} className="fixed top-20 right-4 p-3 bg-black text-white rounded-full shadow-xl hover:bg-gray-800 z-50 flex items-center gap-2"><Settings className="w-5 h-5"/></button>}
-        
         <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200">
           <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -505,7 +745,6 @@ const OnboardingConsultoria = () => {
                 <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
               </div>
             </div>
-            
             <div className="flex items-center gap-3">
               <span className="text-xs font-medium text-gray-500">Etapa {currentStep + 1}/{steps.length}</span>
               <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -514,7 +753,6 @@ const OnboardingConsultoria = () => {
             </div>
           </div>
         </header>
-
         <main className="max-w-6xl mx-auto px-4 py-8 md:py-12 pb-32">
           <div className="bg-white min-h-[400px] rounded-2xl shadow-sm border border-gray-200 p-6 md:p-10 mb-8 relative">
             {renderStepContent(steps[currentStep])}
@@ -530,7 +768,7 @@ const OnboardingConsultoria = () => {
     );
   }
 
-  // MODO EDITOR
+  // MODO EDITOR (Mantido)
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 pb-20">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
