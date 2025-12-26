@@ -1428,23 +1428,72 @@ const handleCoverUpload = async (index, e) => {
 };
 
 // --- UPLOAD DE GALERIA (REAL PARA A NUVEM) ---
+// --- UPLOAD DE GALERIA OTIMIZADO (COMPRESSÃO AUTOMÁTICA) ---
 const handleImageUpload = async (index, e) => {
   const file = e.target.files[0];
   if (!file) return;
 
+  // Feedback visual simples no botão (muda o texto temporariamente)
+  const labelElement = e.target.parentElement.querySelector('span');
+  if (labelElement) {
+      labelElement.innerText = "Comprimindo...";
+      labelElement.className = "text-xs font-bold text-blue-600 animate-pulse";
+  }
+
   try {
     if (!storage) throw new Error("Storage não iniciado");
-    
+
+    // 1. OTIMIZAÇÃO (O "Mini-Robô" que diminui a foto)
+    const compressedFile = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200; // Limite de largura (HD)
+          const scaleSize = MAX_WIDTH / img.width;
+          
+          // Se a imagem já for pequena, não mexe
+          if (scaleSize >= 1) {
+              resolve(file); 
+              return;
+          }
+
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          // Transforma em JPEG leve (80% qualidade)
+          canvas.toBlob((blob) => {
+            resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          }, 'image/jpeg', 0.8);
+        };
+      };
+    });
+
+    // 2. UPLOAD DO ARQUIVO LEVE
     const storageRef = ref(storage, `galeria/${Date.now()}-${file.name}`);
-    const snapshot = await uploadBytes(storageRef, file);
+    const snapshot = await uploadBytes(storageRef, compressedFile);
     const url = await getDownloadURL(snapshot.ref);
     
+    // 3. ADICIONA À LISTA DE IMAGENS EXISTENTE
     const currentImages = steps[index].images || [];
     updateStep(index, 'images', [...currentImages, url]);
     
+    // Restaura o texto do botão
+    if (labelElement) {
+        labelElement.innerText = "Add Imagem";
+        labelElement.className = "text-xs text-gray-500 font-medium";
+    }
+
   } catch (error) {
     console.error("Erro no upload:", error);
-    alert("Erro ao enviar imagem para a galeria.");
+    alert("Erro ao enviar imagem: " + error.message);
+    if (labelElement) labelElement.innerText = "Erro!";
   }
 };
 
@@ -1987,29 +2036,36 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
         )}    
       </main>
 
-      {/* FOOTER NAVEGAÇÃO */}
-      {viewState !== 'editor' && (
-        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
+{/* FOOTER NAVEGAÇÃO (Só aparece se NÃO for editor E NÃO tiver completado) */}
+{viewState !== 'editor' && !isCompleted && (
+        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-40">
           <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+            
+            {/* BOTÃO VOLTAR (Mudado de Anterior para Voltar) */}
             <button
               onClick={handlePrev}
               disabled={currentStep === 0}
-              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
                 currentStep === 0
                   ? 'text-gray-300 cursor-not-allowed'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-black border border-transparent hover:border-gray-200'
               }`}
             >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="hidden sm:inline">Anterior</span>
+              <ArrowLeft className="w-5 h-5" />
+              <span className="hidden sm:inline">Voltar</span>
             </button>
 
+            {/* BOTÃO PRÓXIMO / FINALIZAR */}
             <button
               onClick={handleNext}
-              className="flex items-center gap-2 px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl active:scale-95"
+              className={`flex items-center gap-2 px-8 py-3 rounded-xl font-bold transition-all shadow-lg hover:shadow-xl active:scale-95 ${
+                 currentStep === steps.length - 1 
+                 ? 'bg-green-600 text-white hover:bg-green-700' // Cor verde para finalizar
+                 : 'bg-black text-white hover:bg-gray-800'      // Cor preta para próximo
+              }`}
             >
-              <span>{currentStep === steps.length - 1 ? 'Concluir' : 'Próximo'}</span>
-              <ChevronRight className="w-5 h-5" />
+              <span>{currentStep === steps.length - 1 ? 'Finalizar' : 'Próximo'}</span>
+              {currentStep === steps.length - 1 ? <CheckCircle className="w-5 h-5"/> : <ChevronRight className="w-5 h-5" />}
             </button>
           </div>
         </footer>
