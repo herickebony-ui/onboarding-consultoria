@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"; // <--- GARANTINDO QUE ESTÁ AQUI
+
 import { 
   Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
   ExternalLink, Play, Settings, Plus, Trash2, Layout, Eye, MoveUp, MoveDown, 
   Image as ImageIcon, Upload, Bold, Italic, Underline, Link as LinkIcon, 
   Monitor, Loader, ArrowLeft, Edit, Save, X, Lock, Users, Share2, Search, FileSignature, MoveVertical,
-  Palette, Type // <--- ADICIONAMOS ESTES DOIS AQUI
+  Palette, Type 
 } from 'lucide-react';
 
 import { jsPDF } from "jspdf";
@@ -21,13 +23,14 @@ const firebaseConfig = {
   appId: "1:658269586608:web:991d2c39d6f1664aaae775"
 };
 
-// Inicialização Segura do Banco de Dados
+// Inicialização Segura do Banco de Dados e Storage
 let db;
-let storage; // <--- ADICIONE ISSO
+let storage;
+
 try {
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   db = getFirestore(app);
-  storage = getStorage(app); // <--- ADICIONE ISSO
+  storage = getStorage(app);
 } catch (error) {
   console.error("Erro ao conectar no Firebase:", error);
 }
