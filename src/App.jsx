@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"; // <--- GARANTINDO QUE ESTÁ AQUI
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import { 
   Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
@@ -24,16 +24,9 @@ const firebaseConfig = {
 };
 
 // Inicialização Segura do Banco de Dados e Storage
-let db;
-let storage;
-
-try {
-  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  storage = getStorage(app);
-} catch (error) {
-  console.error("Erro ao conectar no Firebase:", error);
-}
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const storage = getStorage(app);
 
 // --- HELPER: GERADOR DE SLUG LIMPO ---
 const generateSlug = (text) => {
@@ -1145,90 +1138,82 @@ const OnboardingConsultoria = () => {
 
   // --- ⬆️ FIM DO BLOCO ⬆️ ---
 
-// --- CORREÇÃO DEFINITIVA DO VISUAL (WAIT FOR TAILWIND) ---
-useEffect(() => {
-  const initSystem = async () => {
-    
-    // 1. GARANTIA VISUAL (TAILWIND)
-    if (!window.tailwind) {
-      if (!document.querySelector('script[src*="tailwindcss"]')) {
-         const script = document.createElement('script');
-         script.src = "https://cdn.tailwindcss.com";
-         document.head.appendChild(script);
-      }
-      await new Promise((resolve) => {
-        const checkInterval = setInterval(() => {
-          if (window.tailwind) { clearInterval(checkInterval); resolve(); }
-        }, 100);
-      });
-      await new Promise(r => setTimeout(r, 200));
-    }
-
-    // 2. ROTEAMENTO INTELIGENTE (VERIFICA SE JÁ ESTÁ LOGADO)
-    const params = new URLSearchParams(window.location.search);
-    const urlId = params.get('id');        
-    const urlToken = params.get('token'); 
-    const urlAdmin = params.get('admin');
-
-    // --- CENÁRIO 1: ALUNO (LINK DE CONVITE) ---
-    if (urlToken) {
-      try {
-          if(!db) throw new Error("DB não iniciado");
-          const studentRef = doc(db, "students", urlToken);
-          const studentSnap = await getDoc(studentRef);
-          
-          if (studentSnap.exists()) {
-              const sData = { id: studentSnap.id, ...studentSnap.data() };
-              setActiveStudent(sData);
-
-              // VERIFICA SE JÁ FEZ LOGIN NESTA ABA
-              const savedPhone = sessionStorage.getItem('ebony_student_phone');
-              const studentPhone = sData.phone.replace(/\D/g, '');
-
-              if (savedPhone === studentPhone) {
-                  // JÁ ESTÁ LOGADO -> VAI DIRETO PRO FLUXO
-                  if (sData.status === 'signed') {
-                      await loadPlan(sData.planId);
-                      setViewState('student_view_flow');
-                  } else {
-                      setViewState('contract_sign');
-                  }
-              } else {
-                  // NÃO ESTÁ LOGADO -> PEDE O WHATSAPP
-                  setViewState('student_login');
-              }
-          } else {
-              alert("Convite não encontrado ou expirado.");
-              setViewState('error');
-          }
-      } catch (e) { 
-          console.log(e); 
-          setTimeout(() => setViewState('loading'), 1000);
+  // --- INICIALIZAÇÃO CORRIGIDA E SIMPLIFICADA ---
+  useEffect(() => {
+    const initSystem = async () => {
+      
+      // 1. CARREGA O VISUAL (TAILWIND)
+      if (!window.tailwind) {
+        if (!document.querySelector('script[src*="tailwindcss"]')) {
+          const script = document.createElement('script');
+          script.src = "https://cdn.tailwindcss.com";
+          document.head.appendChild(script);
+        }
+        await new Promise(r => setTimeout(r, 300)); // Pequena pausa para garantir
       }
 
-    // --- CENÁRIO 2: LINK DIRETO ANTIGO ---
-    } else if (urlId) {
-      await loadPlan(urlId);
-      setActivePlanId(urlId);
-      setViewState('student_view_legacy');
+      // 2. SISTEMA DE ROTEAMENTO
+      const params = new URLSearchParams(window.location.search);
+      const urlId = params.get('id');        
+      const urlToken = params.get('token'); 
+      const urlAdmin = params.get('admin');
 
-    // --- CENÁRIO 3: ADMIN ---
-    } else {
-      // Verifica se veio pelo link mágico OU se já tem login salvo na sessão
-      const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
+      // CASO 1: LINK DE ALUNO
+      if (urlToken) {
+        try {
+            const studentRef = doc(db, "students", urlToken);
+            const studentSnap = await getDoc(studentRef);
+            if (studentSnap.exists()) {
+                const sData = { id: studentSnap.id, ...studentSnap.data() };
+                setActiveStudent(sData);
+                const savedPhone = sessionStorage.getItem('ebony_student_phone');
+                const studentPhone = sData.phone.replace(/\D/g, '');
+                
+                if (savedPhone === studentPhone) {
+                    if (sData.status === 'signed') {
+                        await loadPlan(sData.planId);
+                        setViewState('student_view_flow');
+                    } else {
+                        setViewState('contract_sign');
+                    }
+                } else {
+                    setViewState('student_login');
+                }
+            } else {
+                alert("Convite não encontrado.");
+                setViewState('error');
+            }
+        } catch (e) { 
+            console.error(e); 
+            setViewState('login'); // Em caso de erro grave, joga pro login
+        }
 
-      if (urlAdmin === 'true' || hasSession) {
-        setIsAdminAccess(true);
-        await Promise.all([loadAllPlans(), loadAllStudents()]);
-        setViewState('dashboard');
+      // CASO 2: LINK DIRETO (ANTIGO)
+      } else if (urlId) {
+        await loadPlan(urlId);
+        setActivePlanId(urlId);
+        setViewState('student_view_legacy');
+
+      // CASO 3: ADMIN / DASHBOARD
       } else {
-        setViewState('login');
+        const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
+        if (urlAdmin === 'true' || hasSession) {
+          setIsAdminAccess(true);
+          try {
+            // Tenta carregar os dados
+            await Promise.all([loadAllPlans(), loadAllStudents()]);
+          } catch (error) {
+            console.error("Erro ao carregar dados iniciais:", error);
+          }
+          setViewState('dashboard'); // Abre o dashboard mesmo se der erro no load (para não travar tela branca)
+        } else {
+          setViewState('login');
+        }
       }
-    }
-  };
+    };
 
-  initSystem();
-}, [db]);
+    initSystem();
+  }, []);
 
   // --- LOGINS ---
   const handleAdminLogin = async () => {
@@ -1297,12 +1282,16 @@ useEffect(() => {
 
   // --- FIRESTORE PLANOS ---
   const loadAllPlans = async () => {
-    if (!db) return;
     try {
+      // Removemos a trava "if (!db)" para forçar a leitura
       const querySnapshot = await getDocs(collection(db, "onboarding"));
       const plansList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAvailablePlans(plansList);
-    } catch (error) { console.error("Erro ao listar planos", error); }
+    } catch (error) { 
+      console.error("Tentando conectar...", error);
+      // Se der erro (banco não pronto), tenta de novo em 1 segundo
+      setTimeout(loadAllPlans, 1000);
+    }
   };
 
   const loadPlan = async (id) => {
@@ -1825,15 +1814,15 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                             {/* BOTÃO DE EXCLUIR */}
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.preventDefault();  // Previne comportamentos estranhos
-                                e.stopPropagation(); // Garante que o clique fique SÓ no botão
+                              onMouseDown={(e) => {
+                                e.preventDefault(); 
+                                e.stopPropagation();
                                 removeCover(index);
                               }}
-                              className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full shadow-lg hover:bg-red-700 transition-colors z-10"
+                              className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full shadow-lg hover:bg-red-700 flex items-center justify-center z-50 cursor-pointer transition-transform hover:scale-110"
                               title="Remover Capa"
                             >
-                              <Trash2 className="w-4 h-4"/>
+                              <Trash2 className="w-4 h-4 pointer-events-none"/>
                             </button>
                           </div>
                           
