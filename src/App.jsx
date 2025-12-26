@@ -1063,11 +1063,13 @@ const OnboardingConsultoria = () => {
     const registeredPhone = activeStudent.phone.replace(/\D/g, '');
     
     if (phoneClean === registeredPhone) {
+        // SALVA O LOGIN NA SESSÃO
+        sessionStorage.setItem('ebony_student_phone', phoneClean);
+
         if (activeStudent.status === 'signed') {
             await loadPlan(activeStudent.planId);
             setViewState('student_view_flow');
         } else {
-            // Se pendente, vai para assinatura
             setViewState('contract_sign'); 
         }
     } else {
@@ -1082,35 +1084,28 @@ const OnboardingConsultoria = () => {
 useEffect(() => {
   const initSystem = async () => {
     
-    // 1. BLOQUEIO DE VISUAL: Só avança se o Tailwind (estilos) estiver pronto
+    // 1. GARANTIA VISUAL (TAILWIND)
     if (!window.tailwind) {
-      // Se o script não existe, cria ele
       if (!document.querySelector('script[src*="tailwindcss"]')) {
          const script = document.createElement('script');
          script.src = "https://cdn.tailwindcss.com";
          document.head.appendChild(script);
       }
-
-      // Fica num loop infinito verificando se o Tailwind já carregou
       await new Promise((resolve) => {
         const checkInterval = setInterval(() => {
-          if (window.tailwind) {
-            clearInterval(checkInterval); // O visual chegou! Pode parar de checar.
-            resolve();
-          }
-        }, 100); // Verifica a cada 100 milisegundos
+          if (window.tailwind) { clearInterval(checkInterval); resolve(); }
+        }, 100);
       });
-
-      // Pequena pausa extra de segurança (0.2s) para garantir a "pintura" da tela
       await new Promise(r => setTimeout(r, 200));
     }
 
-    // 2. LÓGICA DE NAVEGAÇÃO (Login, Dashboard, etc)
+    // 2. ROTEAMENTO INTELIGENTE (VERIFICA SE JÁ ESTÁ LOGADO)
     const params = new URLSearchParams(window.location.search);
     const urlId = params.get('id');        
     const urlToken = params.get('token'); 
     const urlAdmin = params.get('admin');
 
+    // --- CENÁRIO 1: ALUNO (LINK DE CONVITE) ---
     if (urlToken) {
       try {
           if(!db) throw new Error("DB não iniciado");
@@ -1118,8 +1113,25 @@ useEffect(() => {
           const studentSnap = await getDoc(studentRef);
           
           if (studentSnap.exists()) {
-              setActiveStudent({ id: studentSnap.id, ...studentSnap.data() });
-              setViewState('student_login');
+              const sData = { id: studentSnap.id, ...studentSnap.data() };
+              setActiveStudent(sData);
+
+              // VERIFICA SE JÁ FEZ LOGIN NESTA ABA
+              const savedPhone = sessionStorage.getItem('ebony_student_phone');
+              const studentPhone = sData.phone.replace(/\D/g, '');
+
+              if (savedPhone === studentPhone) {
+                  // JÁ ESTÁ LOGADO -> VAI DIRETO PRO FLUXO
+                  if (sData.status === 'signed') {
+                      await loadPlan(sData.planId);
+                      setViewState('student_view_flow');
+                  } else {
+                      setViewState('contract_sign');
+                  }
+              } else {
+                  // NÃO ESTÁ LOGADO -> PEDE O WHATSAPP
+                  setViewState('student_login');
+              }
           } else {
               alert("Convite não encontrado ou expirado.");
               setViewState('error');
@@ -1128,16 +1140,25 @@ useEffect(() => {
           console.log(e); 
           setTimeout(() => setViewState('loading'), 1000);
       }
+
+    // --- CENÁRIO 2: LINK DIRETO ANTIGO ---
     } else if (urlId) {
       await loadPlan(urlId);
       setActivePlanId(urlId);
       setViewState('student_view_legacy');
-    } else if (urlAdmin === 'true') {
-      setIsAdminAccess(true);
-      await Promise.all([loadAllPlans(), loadAllStudents()]);
-      setViewState('dashboard');
+
+    // --- CENÁRIO 3: ADMIN ---
     } else {
-      setViewState('login');
+      // Verifica se veio pelo link mágico OU se já tem login salvo na sessão
+      const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
+
+      if (urlAdmin === 'true' || hasSession) {
+        setIsAdminAccess(true);
+        await Promise.all([loadAllPlans(), loadAllStudents()]);
+        setViewState('dashboard');
+      } else {
+        setViewState('login');
+      }
     }
   };
 
@@ -1148,7 +1169,9 @@ useEffect(() => {
   const handleAdminLogin = async () => {
     if (passwordInput === ADMIN_PASSWORD) {
       setIsAdminAccess(true);
-      // Try/Catch adicionado para evitar crash no login
+      // SALVA O LOGIN NA SESSÃO (Para não pedir senha no F5)
+      sessionStorage.setItem('ebony_admin', 'true');
+      
       try {
         await Promise.all([loadAllPlans(), loadAllStudents()]);
         setViewState('dashboard');
