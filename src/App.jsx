@@ -1705,7 +1705,12 @@ useEffect(() => {
                             </label>
                           ) : (
                             <div className="space-y-3">
-                               <div className="relative rounded-lg overflow-hidden border border-gray-200 group bg-gray-100"><img src={step.coverImage} alt="Capa" className="w-full h-32 object-contain transition-all" style={{ objectPosition: `center ${step.coverPosition || 50}%` }}/><button onClick={() => removeCover(index)} className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4"/></button></div>
+                               <img 
+                                  src={step.coverImage} 
+                                  alt="Capa" 
+                                  className="w-full h-32 object-cover transition-all" // Mudei para object-cover
+                                  style={{ objectPosition: `center ${step.coverPosition || 50}%` }} // ADICIONADO: O estilo que ajusta a posição!
+                                />
                                <div className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200"><MoveVertical className="w-4 h-4 text-gray-400" /><div className="flex-1"><label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Ajustar Posição Vertical</label><input type="range" min="0" max="100" value={step.coverPosition || 50} onChange={(e) => updateStep(index, 'coverPosition', e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"/></div><span className="text-xs text-gray-500 w-8 text-right">{step.coverPosition || 50}%</span></div>
                             </div>
                           )}
