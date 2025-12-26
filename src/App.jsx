@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
 import { 
   Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
   ExternalLink, Play, Settings, Plus, Trash2, Layout, Eye, MoveUp, MoveDown, 
   Image as ImageIcon, Upload, Bold, Italic, Underline, Link as LinkIcon, 
-  Monitor, Loader, ArrowLeft, Edit, Save, X, Lock, Users, Share2, Search, FileSignature, MoveVertical
+  Monitor, Loader, ArrowLeft, Edit, Save, X, Lock, Users, Share2, Search, FileSignature, MoveVertical,
+  Palette, Type // <--- ADICIONAMOS ESTES DOIS AQUI
 } from 'lucide-react';
 
 import { jsPDF } from "jspdf";
@@ -23,7 +24,7 @@ const firebaseConfig = {
 // Inicialização Segura do Banco de Dados
 let db;
 try {
-  const app = initializeApp(firebaseConfig);
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   db = getFirestore(app);
 } catch (error) {
   console.error("Erro ao conectar no Firebase:", error);
@@ -57,29 +58,40 @@ const escapeHtml = (str) =>
       return url.toString().startsWith("http") ? url : `https://${url}`;
     };
         
-const wrapHtmlForPdf = (innerHtml) => `
-  <style>
-    @page { size: A4; margin: 0; }
-    .pdf-root {
-      font-family: "Times New Roman", Times, serif !important;
-      font-size: 12pt !important;
-      line-height: 1.5 !important;
-      color: #000 !important;
-      width: 210mm;
-      padding: 20mm;
-      background: white;
-      text-align: justify;
-    }
-    .pdf-root * { color: #000 !important; }
-    .page-break { page-break-before: always; break-before: page; }
-  </style>
-  <div class="pdf-root">
-    ${innerHtml}
-  </div>
-`;
+    const wrapHtmlForPdf = (innerHtml) => `
+    <style>
+      @page { size: A4; margin: 0; }
+      
+      .pdf-root {
+        font-family: "Times New Roman", Times, serif !important;
+        font-size: 12pt !important;
+        line-height: 1.5 !important;
+        color: #000000 !important;
+        text-align: justify !important;
+        
+        /* Largura fixa em PX (794px = 210mm a 96dpi) para travar o layout */
+        width: 794px; 
+        min-height: 1123px; /* Altura mínima A4 */
+        padding: 25mm 30mm; /* Margens: Sup/Inf 2.5cm, Esq/Dir 3cm */
+        background: white;
+        box-sizing: border-box;
+      }
+      
+      .pdf-root p, .pdf-root div, .pdf-root span {
+        color: #000 !important;
+        margin-bottom: 0.8em;
+      }
+      
+      img { max-width: 100%; height: auto; }
+    </style>
+    
+    <div class="pdf-root">
+      ${innerHtml}
+    </div>
+  `;
 
-// --- EDITOR DE TEXTO ---
-const RichTextEditor = ({ value, onChange }) => {
+// --- EDITOR DE TEXTO INTELIGENTE (MODO A4 OU MODO FLUXO) ---
+const RichTextEditor = ({ value, onChange, isA4 = false }) => {
   const editorRef = useRef(null);
 
   const execCmd = (command, val = null) => {
@@ -91,23 +103,19 @@ const RichTextEditor = ({ value, onChange }) => {
     const selectionText = window.getSelection()?.toString() || "";
     let url = prompt("Cole o link aqui:", "https://");
     if (!url) return;
-
-    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-      url = `https://${url}`;
-    }
-
+    if (!url.startsWith("http://") && !url.startsWith("https://")) url = `https://${url}`;
     const text = prompt("Texto do link:", selectionText || "Clique aqui");
     if (!text) return;
-
-    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#111;text-decoration:underline;">${escapeHtml(
-      text
-    )}</a>`;
-
+    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${escapeHtml(text)}</a>`;
     document.execCommand("insertHTML", false, linkHtml);
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
-  // Quebra de página REAL
+  // Funções exclusivas para o modo Fluxo (Cores e Tamanho)
+  const changeColor = (e) => execCmd("foreColor", e.target.value);
+  const changeSize = (e) => execCmd("fontSize", e.target.value);
+
+  // Funções exclusivas para Contrato (A4)
   const insertPageBreak = () => {
     const html = `<div class="page-break" style="page-break-before:always;break-before:page;height:1px;"></div>`;
     document.execCommand("insertHTML", false, html);
@@ -115,88 +123,74 @@ const RichTextEditor = ({ value, onChange }) => {
   };
 
   const insertSignaturePlaceholder = () => {
-    const html = `
-      <div class="no-break" style="margin-top:18px;">
-        <div style="height:60px; border-bottom:1px solid #111; width:260px;"></div>
-        <div style="font-size:10pt; color:#444; margin-top:6px;">Assinatura do Aluno</div>
-        <div>{{assinatura_aluno}}</div>
-      </div>
-    `;
+    const html = `<div class="no-break" style="margin-top:18px;"><div style="height:60px; border-bottom:1px solid #111; width:260px;"></div><div style="font-size:10pt; color:#444; margin-top:6px;">Assinatura do Aluno</div><div>{{assinatura_aluno}}</div></div>`;
     document.execCommand("insertHTML", false, html);
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
-  // Sincroniza o HTML
   useEffect(() => {
     if (editorRef.current && editorRef.current.innerHTML !== (value || "")) {
       editorRef.current.innerHTML = value || "";
     }
   }, [value]);
 
+  // Estilos diferentes para cada situação
+  const containerStyle = isA4 
+    ? "border border-gray-300 rounded-md overflow-hidden bg-white" // Estilo Contrato
+    : "border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm"; // Estilo Fluxo (Normal)
+
+  const editableStyle = isA4 
+    ? { // MODO A4 (Contrato)
+        width: "210mm", minHeight: "297mm", margin: "20px auto", padding: "20mm",
+        backgroundColor: "#fff", boxShadow: "0 0 15px rgba(0,0,0,0.2)",
+        fontFamily: "Times New Roman, serif", fontSize: "12pt", lineHeight: "1.5", color: "#000",
+        backgroundImage: "linear-gradient(to bottom, transparent 296mm, #d1d5db 296mm, #d1d5db 297mm)", backgroundSize: "100% 297mm"
+      } 
+    : { // MODO NORMAL (Fluxo - O que você quer)
+        width: "100%", minHeight: "300px", padding: "20px",
+        backgroundColor: "#fff", fontFamily: "ui-sans-serif, system-ui, sans-serif",
+        fontSize: "16px", lineHeight: "1.6", color: "#1f2937", outline: "none"
+      };
+
   return (
-    <div className="border border-gray-300 rounded-md overflow-hidden bg-white">
-      {/* Toolbar fixa */}
+    <div className={containerStyle}>
+      {/* BARRA DE FERRAMENTAS */}
       <div className="sticky top-0 z-10 flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-200 flex-wrap">
-        <button onClick={() => execCmd("bold")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Negrito">
-          <Bold className="w-4 h-4" />
-        </button>
-        <button onClick={() => execCmd("italic")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Itálico">
-          <Italic className="w-4 h-4" />
-        </button>
-        <button onClick={() => execCmd("underline")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Sublinhado">
-          <Underline className="w-4 h-4" />
-        </button>
+        <button onClick={() => execCmd("bold")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Negrito"><Bold className="w-4 h-4" /></button>
+        <button onClick={() => execCmd("italic")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Itálico"><Italic className="w-4 h-4" /></button>
+        <button onClick={() => execCmd("underline")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Sublinhado"><Underline className="w-4 h-4" /></button>
+        
+        {/* Seletor de Cor (Só aparece no modo Fluxo) */}
+        {!isA4 && (
+          <div className="flex items-center gap-1 mx-1 border-l border-r border-gray-300 px-2">
+            <label className="cursor-pointer p-1.5 hover:bg-gray-200 rounded flex items-center gap-1" title="Cor do Texto">
+              <Palette className="w-4 h-4 text-blue-600"/>
+              <input type="color" onChange={changeColor} className="w-0 h-0 opacity-0 absolute" />
+            </label>
+            <select onChange={changeSize} className="p-1 text-xs border border-gray-300 rounded bg-white" title="Tamanho da Fonte">
+              <option value="3">Normal</option>
+              <option value="1">Pequeno</option>
+              <option value="5">Grande</option>
+              <option value="7">Gigante</option>
+            </select>
+          </div>
+        )}
 
         <div className="w-px h-4 bg-gray-300 mx-1"></div>
+        <button onClick={addLink} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Inserir Link"><LinkIcon className="w-4 h-4" /></button>
 
-        <button onClick={addLink} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Inserir Link">
-          <LinkIcon className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={insertSignaturePlaceholder}
-          className="p-1.5 hover:bg-gray-200 rounded text-gray-700"
-          title="Inserir bloco de assinatura (placeholder)"
-        >
-          <FileSignature className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={insertPageBreak}
-          className="px-2 py-1 text-xs font-bold border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
-          title="Inserir quebra de página"
-        >
-          Quebra de Página
-        </button>
+        {/* Botões específicos do Contrato (Só aparecem se for A4) */}
+        {isA4 && (
+          <>
+            <button onClick={insertSignaturePlaceholder} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Inserir Assinatura"><FileSignature className="w-4 h-4" /></button>
+            <button onClick={insertPageBreak} className="px-2 py-1 text-xs font-bold border border-gray-300 rounded hover:bg-gray-100 text-gray-700 ml-auto">Quebra Pág.</button>
+          </>
+        )}
       </div>
 
-      {/* Área do documento */}
-      <div className="max-h-[70vh] overflow-y-auto bg-gray-100 p-4">
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={() => {
-            if (editorRef.current) onChange(editorRef.current.innerHTML);
-          }}
-          className="outline-none prose max-w-none"
-          style={{
-            width: "210mm",
-            minHeight: "297mm",
-            margin: "20px auto",
-            padding: "20mm",
-            backgroundColor: "#fff",
-            boxShadow: "0 0 15px rgba(0,0,0,0.2)",
-            fontFamily: "Times New Roman, serif",
-            fontSize: "12pt",
-            lineHeight: "1.5",
-            color: "#000",
-            boxSizing: "border-box",
-            backgroundImage: "linear-gradient(to bottom, transparent 296mm, #d1d5db 296mm, #d1d5db 297mm)",
-            backgroundSize: "100% 297mm",
-            position: "relative"
-          }}
-        />
+      {/* ÁREA DE DIGITAÇÃO */}
+      <div className={isA4 ? "max-h-[70vh] overflow-y-auto bg-gray-100 p-4" : "w-full bg-white"}>
+        <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={() => { if (editorRef.current) onChange(editorRef.current.innerHTML); }} className="outline-none prose max-w-none" style={editableStyle} />
       </div>
     </div>
   );
@@ -277,24 +271,33 @@ const SignaturePad = ({ onSave, onClear }) => {
 };
 
 // --- FUNÇÃO GLOBAL: PREENCHER CONTRATO ---
-// (Esta função deve ficar FORA de qualquer componente para ser usada por todos)
 const applyStudentValuesToContract = (html, values) => {
   let out = html || "";
+  
   Object.entries(values || {}).forEach(([key, val]) => {
+    // Tratamento seguro para regex
     const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
-    const safe = String(val ?? "").trim();
-    out = out.replace(regex, safe ? escapeHtml(safe) : "________");
+    
+    // Valor limpo (sem tags HTML estranhas, apenas texto)
+    const safeVal = String(val ?? "").trim();
+    
+    // Se o valor existir, substitui. Se não, coloca linha.
+    // Usamos o escapeHtml para segurança, mas sem envolver em <span> extra
+    out = out.replace(regex, safeVal ? escapeHtml(safeVal) : "______________________");
   });
  
-  // Substitui o placeholder da assinatura pela linha preta
+  // Substitui o placeholder da assinatura pela linha preta e espaço da imagem
   out = out.replace(
     /{{\s*assinatura_aluno\s*}}/g,
-    `<div style="height:60px; border-bottom:1px solid #111; width:260px; margin-top:10px;"></div>`
+    `<div style="margin-top: 20px; width: 100%;">
+       <div style="border-bottom: 1px solid #000; width: 260px; margin-bottom: 5px;"></div>
+       <div style="font-size: 10pt;">Assinatura do Aluno</div>
+     </div>`
   );
   
-  // Limpa variáveis residuais
-  out = out.replace(/{{\s*[\w_]+\s*}}/g, "________");
+  // Limpa variáveis residuais que não foram preenchidas
+  out = out.replace(/{{\s*[\w_]+\s*}}/g, "______________________");
   
   return out;
 };
@@ -340,6 +343,36 @@ const Dashboard = ({
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [currentTemplate, setCurrentTemplate] = useState({ id: '', name: '', content: '', fields: [] });
   const [newField, setNewField] = useState({ key: '', label: '', type: 'text', owner: 'student' });
+
+  const handleSaveTemplate = async () => {
+    if (!currentTemplate.name) return alert("Dê um nome ao modelo.");
+    try {
+      const id = currentTemplate.id || generateSlug(currentTemplate.name);
+      await setDoc(doc(db, "contract_templates", id), {
+        name: currentTemplate.name,
+        content: currentTemplate.content,
+        fields: currentTemplate.fields || [],
+        updatedAt: new Date().toISOString()
+      });
+      alert("Modelo salvo!");
+      setIsEditingTemplate(false);
+      const q = await getDocs(collection(db, "contract_templates"));
+      setTemplates(q.docs.map(d => ({ ...d.data(), id: d.id })));
+    } catch (e) { alert("Erro ao salvar template"); console.error(e); }
+  };
+
+  const addFieldToTemplate = () => {
+    if (!newField.key || !newField.label) return alert("Preencha Chave e Rótulo");
+    const cleanKey = newField.key.replace(/[{}]/g, '').trim();
+    setCurrentTemplate({ ...currentTemplate, fields: [...currentTemplate.fields, { ...newField, key: cleanKey }] });
+    setNewField({ key: '', label: '', type: 'text', owner: 'student' });
+  };
+
+  const removeFieldFromTemplate = (idx) => {
+    const newFields = [...currentTemplate.fields];
+    newFields.splice(idx, 1);
+    setCurrentTemplate({ ...currentTemplate, fields: newFields });
+  };
 
   // --- EFEITOS (LOADERS) ---
   useEffect(() => {
@@ -438,6 +471,105 @@ const Dashboard = ({
     const url = `${window.location.origin}/?token=${studentId}`;
     navigator.clipboard.writeText(url);
     alert("Link do Convite copiado! Envie para o aluno:\n" + url);
+  };
+  const buildSignedContractHtml = (student) => {
+    const base = student?.contractText || "<p>Contrato não encontrado.</p>";
+    const values = student?.studentData || {};
+    let html = applyStudentValuesToContract(base, values);
+
+    if (student?.signature?.image) {
+      // Substitui a linha de assinatura pela imagem da assinatura
+      html = html.replace(
+        /<div style="height:60px; border-bottom:1px solid #111; width:260px; margin-top:10px;"><\/div>/g,
+        `<div style="width:260px; position:relative; margin-top: 20px;">
+            <img src="${student.signature.image}" style="width:200px; height:auto; display:block; margin-bottom:-10px;" />
+            <div style="border-bottom:1px solid #000; width:260px;"></div>
+         </div>`
+      );
+    }
+    return html;
+  };
+
+  const generateContractPDF = async (student) => {
+    if (!student?.signature?.image) {
+      alert("Este aluno ainda não assinou.");
+      return;
+    }
+  
+    // Feedback visual
+    const loadingMsg = document.createElement('div');
+    loadingMsg.innerHTML = `
+      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);color:white;padding:20px 40px;border-radius:12px;z-index:99999;font-family:sans-serif;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:20px;height:20px;border:3px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+          <span style="font-weight:bold;">Gerando PDF...</span>
+        </div>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    `;
+    document.body.appendChild(loadingMsg);
+  
+    try {
+      const pdf = new jsPDF("p", "mm", "a4");
+      
+      // Container temporário - VISÍVEL mas atrás de tudo
+      const container = document.createElement("div");
+      container.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: -9999;
+        width: 794px;
+        height: auto;
+        background: #ffffff;
+        color: #000000;
+        overflow: hidden;
+      `;
+      
+      // Monta o HTML do contrato assinado
+      const signedHtml = buildSignedContractHtml(student);
+      container.innerHTML = wrapHtmlForPdf(signedHtml);
+      document.body.appendChild(container);
+  
+      // Aguarda imagens carregarem (assinatura, logos, etc)
+      await new Promise(resolve => setTimeout(resolve, 800));
+  
+      // Gera o PDF
+      await pdf.html(container.querySelector(".pdf-root"), {
+        callback: (doc) => {
+          const fileName = `Contrato_${String(student.name || "Aluno").replace(/\s+/g, "_")}.pdf`;
+          doc.save(fileName);
+          
+          // Limpa tudo
+          document.body.removeChild(container);
+          document.body.removeChild(loadingMsg);
+        },
+        x: 0,
+        y: 0,
+        width: 210, // A4 em mm
+        windowWidth: 794, // A4 em pixels (96 DPI)
+        margin: [0, 0, 0, 0], // Margens controladas pelo CSS interno
+        html2canvas: { 
+          scale: 2, // Qualidade alta
+          useCORS: true, // Permite imagens externas
+          letterRendering: true, // Melhora texto
+          scrollY: 0,
+          scrollX: 0,
+          backgroundColor: "#ffffff",
+          logging: false // Remove logs no console
+        },
+        autoPaging: 'text' // Quebra de página automática
+      });
+  
+    } catch (error) {
+      console.error("❌ Erro ao gerar PDF:", error);
+      alert("Erro ao gerar o PDF. Verifique o console para detalhes.");
+      
+      // Limpa em caso de erro
+      const tempContainer = document.querySelector('div[style*="z-index: -9999"]');
+      if (tempContainer) document.body.removeChild(tempContainer);
+      if (document.body.contains(loadingMsg)) document.body.removeChild(loadingMsg);
+    }
   };
 
   // --- RENDERIZAÇÃO DO DASHBOARD ---
@@ -761,8 +893,7 @@ const Dashboard = ({
                 <div className="flex-1 overflow-hidden h-full flex flex-col md:flex-row">
                   <div className="w-full md:w-2/3 p-6 overflow-y-auto border-r border-gray-200">
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Texto do Contrato</label>
-                    <RichTextEditor value={currentTemplate.content} onChange={(html) => setCurrentTemplate({...currentTemplate, content: html})} />
-                  </div>
+                    <RichTextEditor isA4={true} value={currentTemplate.content} onChange={(html) => setCurrentTemplate({...currentTemplate, content: html})} />                  </div>
                   <div className="w-full md:w-1/3 p-6 bg-gray-50 overflow-y-auto">
                     <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Settings className="w-4 h-4"/> Variáveis</h3>
                     <div className="bg-white p-4 rounded-xl border border-gray-200 mb-6 shadow-sm">
@@ -1258,7 +1389,7 @@ const OnboardingConsultoria = () => {
         <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
           <Smartphone className="w-8 h-8"/>
         </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Olá, {activeStudent?.name.split(' ')[0]}!</h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Olá, {activeStudent?.name?.split(' ')[0] || "Olá"}!</h2>
         <p className="text-sm text-gray-500 mb-6">Para confirmar sua identidade e acessar seu contrato, digite seu WhatsApp cadastrado com DDD e o 9 na frente.</p>
         
         <input 
@@ -1482,8 +1613,7 @@ const OnboardingConsultoria = () => {
                           <div className="md:col-span-3"><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Título</label><input type="text" value={step.title} onChange={(e) => updateStep(index, 'title', e.target.value)} className="w-full p-2 border border-gray-300 rounded-md font-medium outline-none"/></div>
                           <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tipo</label><select value={step.type} onChange={(e) => updateStep(index, 'type', e.target.value)} className="w-full p-2 border border-gray-300 rounded-md text-sm bg-white outline-none"><option value="text">Texto</option><option value="welcome">Boas-vindas</option><option value="pdf">PDF</option><option value="video">Vídeo</option><option value="app">App</option></select></div>
                         </div>
-                        <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Conteúdo</label><RichTextEditor value={step.content} onChange={(newContent) => updateStep(index, 'content', newContent)}/></div>
-                        
+                        <RichTextEditor isA4={false} value={step.content} onChange={(newContent) => updateStep(index, 'content', newContent)}/>                        
                         <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                           <label className="block text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><ImageIcon className="w-4 h-4" /> Galeria (Fotos Extras)</label>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1524,7 +1654,7 @@ const OnboardingConsultoria = () => {
                     onClick={() => { setIsCompleted(false); setCurrentStep(0); window.scrollTo(0,0); }}
                     className="px-8 py-3 border border-gray-200 text-gray-500 rounded-xl font-bold text-sm hover:bg-gray-50 hover:text-gray-900 transition-colors w-full"
                   >
-                    Reiniciar Início
+                    Voltar ao início do Onboarding
                   </button>
                 </div>
               </div>
