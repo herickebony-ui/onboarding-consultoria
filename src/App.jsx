@@ -1868,21 +1868,57 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                 <Layout className="w-4 h-4" /> Etapas do Fluxo ({steps.length})
               </h2>
 
+              {/* --- NAVEGAÇÃO RÁPIDA (Menu "Índice" Inteligente) --- */}
+              <div className="group/menu fixed right-2 top-1/2 transform -translate-y-1/2 z-50 flex flex-col gap-6 hidden xl:flex p-4 rounded-2xl hover:bg-gray-50/80 transition-colors">
+                {steps.map((s, i) => (
+                  <a 
+                    key={i} 
+                    href={`#step-${i}`} 
+                    className="group/item relative flex items-center justify-end"
+                  >
+                    {/* Título (Com limite de tamanho e "..." no final) */}
+                    <span className="cursor-pointer absolute right-6 px-3 py-1.5 bg-gray-900 text-white text-[11px] font-bold rounded-lg opacity-0 translate-x-4 group-hover/menu:opacity-100 group-hover/menu:translate-x-0 transition-all duration-300 ease-out shadow-xl border border-gray-700 z-50 truncate max-w-[230px] hover:bg-rose-900">
+                      {i + 1}. {s.title || "Sem Título"}
+                    </span>
+                    
+                    {/* Bolinha */}
+                    <div className="w-4 h-4 bg-gray-300 rounded-full border border-gray-400 group-hover/item:bg-[#850000] group-hover/item:border-[#850000] group-hover/item:scale-150 transition-all shadow-sm"></div>
+                  </a>
+                ))}
+              </div>
+
               {steps.map((step, index) => (
-                <div key={step.id} className="group bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all hover:shadow-md">
+                <div
+                id={`step-${index}`}               
+                key={step.id} 
+                className="group bg-gray-50 rounded-xl border border-gray-300 shadow-md mb-8 overflow-hidden transition-all hover:shadow-lg">            
                   {/* Cabeçalho da Etapa */}
-                  <div className="bg-gray-50 p-3 border-b border-gray-100 flex items-center justify-between">
+                  <div className="bg-[#850000] p-4 border-b border-[#850000]/30 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 flex items-center justify-center bg-gray-200 rounded text-xs font-bold text-gray-600">{index + 1}</span>
-                      <span className="font-semibold text-gray-700 text-sm truncate max-w-[120px] sm:max-w-none">{step.title}</span>
-                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-bold uppercase tracking-wide hidden sm:inline">{step.type}</span>
+                      {/* O Número (Agora com fundo branco e texto vinho para inverter) */}
+                      <span className="w-8 h-8 flex items-center justify-center bg-white text-rose-900 rounded-lg text-sm font-bold shadow-sm">
+                        {index + 1}
+                      </span>
+                      
+                      {/* Título (Texto BRANCO) */}
+                      <span className="text-lg font-black text-white uppercase tracking-wide truncate max-w-[200px] sm:max-w-md">
+                        {step.title || "Sem Título"}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => moveStep(index, 'up')} className="p-1 hover:bg-gray-200 rounded"><MoveUp className="w-4 h-4"/></button>
-                      <button onClick={() => moveStep(index, 'down')} className="p-1 hover:bg-gray-200 rounded"><MoveDown className="w-4 h-4"/></button>
-                      <button onClick={() => removeStep(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
+
+                    {/* Botões (Ícones Brancos) */}
+                      <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => moveStep(index, 'up')} className="p-2 hover:bg-rose-800 rounded text-white transition-all">
+                          <MoveUp className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => moveStep(index, 'down')} className="p-2 hover:bg-rose-800 rounded text-white transition-all">
+                          <MoveDown className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => removeStep(index)} className="p-2 text-rose-200 hover:bg-red-600 hover:text-white rounded transition-all">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
                   {/* Conteúdo da Etapa */}
                   <div className="p-5 grid gap-4">
