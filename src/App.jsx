@@ -90,7 +90,7 @@ const escapeHtml = (str) =>
     </div>
   `;
 
-// --- EDITOR DE TEXTO INTELIGENTE (MODO A4 OU MODO FLUXO) ---
+// --- EDITOR DE TEXTO DEFINITIVO (BARRA COMPLETA + ROLAGEM CORRIGIDA) ---
 const RichTextEditor = ({ value, onChange, isA4 = false }) => {
   const editorRef = useRef(null);
 
@@ -111,19 +111,38 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
-  // Funções exclusivas para o modo Fluxo (Cores e Tamanho)
+  // --- FUNÇÕES DA BARRA DE FERRAMENTAS ---
   const changeColor = (e) => execCmd("foreColor", e.target.value);
   const changeSize = (e) => execCmd("fontSize", e.target.value);
+  const alignLeft = () => execCmd("justifyLeft");
+  const alignCenter = () => execCmd("justifyCenter");
+  const alignRight = () => execCmd("justifyRight");
+  const alignFull = () => execCmd("justifyFull");
 
-  // Funções exclusivas para Contrato (A4)
+  // --- QUEBRA DE PÁGINA VISUAL (Furo Cinza) ---
   const insertPageBreak = () => {
-    const html = `<div class="page-break" style="page-break-before:always;break-before:page;height:1px;"></div>`;
+    const html = `
+      <div contenteditable="false" style="
+          background-color: #e5e7eb; 
+          height: 20px; 
+          margin: 40px -20mm; 
+          border-top: 1px solid #d1d5db; 
+          border-bottom: 1px solid #d1d5db;
+          display: flex; align-items: center; justify-content: center;
+          user-select: none; opacity: 0.8;
+      ">
+        <span style="font-size: 9px; color: #6b7280; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">
+          --- QUEBRA DE PÁGINA ---
+        </span>
+      </div>
+      <div><br></div>
+    `;
     document.execCommand("insertHTML", false, html);
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
   const insertSignaturePlaceholder = () => {
-    const html = `<div class="no-break" style="margin-top:18px;"><div style="height:60px; border-bottom:1px solid #111; width:260px;"></div><div style="font-size:10pt; color:#444; margin-top:6px;">Assinatura do Aluno</div><div>{{assinatura_aluno}}</div></div>`;
+    const html = `<div class="no-break" style="margin-top:20px;"><div style="height:60px; border-bottom:1px solid #000; width:260px;"></div><div style="font-size:10pt; color:#333; margin-top:5px;">Assinatura do Aluno</div><div>{{assinatura_aluno}}</div></div>`;
     document.execCommand("insertHTML", false, html);
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
@@ -134,63 +153,104 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
     }
   }, [value]);
 
-  // Estilos diferentes para cada situação
-  const containerStyle = isA4 
-    ? "border border-gray-300 rounded-md overflow-hidden bg-white" // Estilo Contrato
-    : "border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm"; // Estilo Fluxo (Normal)
+  // --- CONFIGURAÇÃO VISUAL (FLUXO vs CONTRATO) ---
+  
+  // Container externo (A Mesa)
+  const wrapperClass = isA4 
+    ? "flex flex-col border border-gray-300 rounded-lg bg-gray-100 overflow-hidden h-[80vh]" // Contrato: Altura fixa com rolagem interna
+    : "flex flex-col border border-gray-200 rounded-lg bg-white shadow-sm min-h-[300px]"; // Fluxo: Altura automática
 
-  const editableStyle = isA4 
-    ? { // MODO A4 (Contrato)
-        width: "210mm", minHeight: "297mm", margin: "20px auto", padding: "20mm",
-        backgroundColor: "#fff", boxShadow: "0 0 15px rgba(0,0,0,0.2)",
-        fontFamily: "Times New Roman, serif", fontSize: "12pt", lineHeight: "1.5", color: "#000",
-        backgroundImage: "linear-gradient(to bottom, transparent 296mm, #d1d5db 296mm, #d1d5db 297mm)", backgroundSize: "100% 297mm"
+  // Área de Scroll (Onde o papel desliza)
+  const scrollAreaClass = isA4
+    ? "flex-1 overflow-y-auto p-8 flex justify-center bg-gray-200" // Fundo cinza scrollável
+    : "w-full";
+
+  // O Papel (A Folha Branca)
+  const paperStyle = isA4 
+    ? { 
+        width: "210mm", 
+        minHeight: "297mm", 
+        height: "auto", // IMPORTANTE: Cresce com o texto
+        backgroundColor: "white", 
+        padding: "20mm",
+        boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+        fontFamily: "'Times New Roman', serif", 
+        fontSize: "12pt", 
+        color: "#000",
+        lineHeight: "1.5",
+        outline: "none"
       } 
-    : { // MODO NORMAL (Fluxo - O que você quer)
-        width: "100%", minHeight: "300px", padding: "20px",
-        backgroundColor: "#fff", fontFamily: "ui-sans-serif, system-ui, sans-serif",
-        fontSize: "16px", lineHeight: "1.6", color: "#1f2937", outline: "none"
+    : { 
+        width: "100%", 
+        minHeight: "250px", 
+        padding: "20px", 
+        backgroundColor: "white", 
+        fontFamily: "ui-sans-serif, system-ui, sans-serif", 
+        fontSize: "16px", 
+        color: "#1f2937", 
+        lineHeight: "1.6",
+        outline: "none"
       };
 
   return (
-    <div className={containerStyle}>
-      {/* BARRA DE FERRAMENTAS */}
-      <div className="sticky top-0 z-10 flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-200 flex-wrap">
-        <button onClick={() => execCmd("bold")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Negrito"><Bold className="w-4 h-4" /></button>
-        <button onClick={() => execCmd("italic")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Itálico"><Italic className="w-4 h-4" /></button>
-        <button onClick={() => execCmd("underline")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Sublinhado"><Underline className="w-4 h-4" /></button>
+    <div className={wrapperClass}>
+      {/* --- BARRA DE FERRAMENTAS (FIXA NO TOPO) --- */}
+      <div className="bg-gray-50 border-b border-gray-300 p-2 flex flex-wrap items-center gap-1 sticky top-0 z-20">
         
-        {/* Seletor de Cor (Só aparece no modo Fluxo) */}
-        {!isA4 && (
-          <div className="flex items-center gap-1 mx-1 border-l border-r border-gray-300 px-2">
-            <label className="cursor-pointer p-1.5 hover:bg-gray-200 rounded flex items-center gap-1" title="Cor do Texto">
-              <Palette className="w-4 h-4 text-blue-600"/>
-              <input type="color" onChange={changeColor} className="w-0 h-0 opacity-0 absolute" />
-            </label>
-            <select onChange={changeSize} className="p-1 text-xs border border-gray-300 rounded bg-white" title="Tamanho da Fonte">
-              <option value="3">Normal</option>
-              <option value="1">Pequeno</option>
-              <option value="5">Grande</option>
-              <option value="7">Gigante</option>
-            </select>
+        {/* Grupo 1: Formatação Texto */}
+        <div className="flex bg-white border border-gray-300 rounded overflow-hidden mr-2">
+          <button onClick={() => execCmd("bold")} className="p-1.5 hover:bg-gray-100 text-gray-700 border-r border-gray-200" title="Negrito"><Bold className="w-4 h-4"/></button>
+          <button onClick={() => execCmd("italic")} className="p-1.5 hover:bg-gray-100 text-gray-700 border-r border-gray-200" title="Itálico"><Italic className="w-4 h-4"/></button>
+          <button onClick={() => execCmd("underline")} className="p-1.5 hover:bg-gray-100 text-gray-700" title="Sublinhado"><Underline className="w-4 h-4"/></button>
+        </div>
+
+        {/* Grupo 2: Alinhamento */}
+        <div className="flex bg-white border border-gray-300 rounded overflow-hidden mr-2">
+          <button onClick={alignLeft} className="p-1.5 hover:bg-gray-100 text-gray-700 border-r border-gray-200" title="Esquerda"><div className="text-[10px] font-bold">Esq</div></button>
+          <button onClick={alignCenter} className="p-1.5 hover:bg-gray-100 text-gray-700 border-r border-gray-200" title="Centro"><div className="text-[10px] font-bold">Cen</div></button>
+          <button onClick={alignFull} className="p-1.5 hover:bg-gray-100 text-gray-700" title="Justificado"><div className="text-[10px] font-bold">Jus</div></button>
+        </div>
+
+        {/* Grupo 3: Estilo Visual */}
+        <div className="flex items-center gap-2 mr-2 bg-white border border-gray-300 rounded px-2 py-0.5">
+          <div className="relative w-6 h-6 flex items-center justify-center cursor-pointer hover:bg-gray-100 rounded">
+             <Palette className="w-4 h-4 text-blue-600" />
+             <input type="color" onChange={changeColor} className="absolute inset-0 opacity-0 cursor-pointer" title="Cor do Texto" />
           </div>
-        )}
+          <div className="h-4 w-px bg-gray-200"></div>
+          <select onChange={changeSize} className="text-xs bg-transparent outline-none cursor-pointer" title="Tamanho da Fonte">
+             <option value="2">Pequeno</option>
+             <option value="3" selected>Normal</option>
+             <option value="4">Médio</option>
+             <option value="5">Grande</option>
+             <option value="7">Gigante</option>
+          </select>
+        </div>
 
-        <div className="w-px h-4 bg-gray-300 mx-1"></div>
-        <button onClick={addLink} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Inserir Link"><LinkIcon className="w-4 h-4" /></button>
+        <button onClick={addLink} className="p-1.5 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-700 mr-2" title="Link"><LinkIcon className="w-4 h-4"/></button>
 
-        {/* Botões específicos do Contrato (Só aparecem se for A4) */}
+        {/* Grupo 4: Exclusivo Contrato (A4) */}
         {isA4 && (
-          <>
-            <button onClick={insertSignaturePlaceholder} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Inserir Assinatura"><FileSignature className="w-4 h-4" /></button>
-            <button onClick={insertPageBreak} className="px-2 py-1 text-xs font-bold border border-gray-300 rounded hover:bg-gray-100 text-gray-700 ml-auto">Quebra Pág.</button>
-          </>
+          <div className="ml-auto flex items-center gap-2 pl-2 border-l border-gray-300">
+             <button onClick={insertSignaturePlaceholder} className="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 rounded text-xs font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
+               <FileSignature className="w-3 h-3"/> Assinatura
+             </button>
+             <button onClick={insertPageBreak} className="flex items-center gap-1 px-3 py-1.5 bg-red-50 border border-red-200 rounded text-xs font-bold text-red-600 hover:bg-red-100 shadow-sm">
+               Quebra Pág.
+             </button>
+          </div>
         )}
       </div>
 
-      {/* ÁREA DE DIGITAÇÃO */}
-      <div className={isA4 ? "max-h-[70vh] overflow-y-auto bg-gray-100 p-4" : "w-full bg-white"}>
-        <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={() => { if (editorRef.current) onChange(editorRef.current.innerHTML); }} className="outline-none prose max-w-none" style={editableStyle} />
+      {/* --- ÁREA DE EDIÇÃO (CORRIGIDA) --- */}
+      <div className={scrollAreaClass}>
+        <div 
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={() => { if (editorRef.current) onChange(editorRef.current.innerHTML); }}
+          style={paperStyle}
+        />
       </div>
     </div>
   );
