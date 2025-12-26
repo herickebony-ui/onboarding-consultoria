@@ -1509,21 +1509,31 @@ const OnboardingConsultoria = () => {
                 </div>
                 <h2 className="text-3xl font-bold text-gray-900 mb-2">{finalTitle}</h2>
                 <p className="text-gray-500 max-w-md mb-8">{finalMessage}</p>
-                <a 
-                  href={formatUrl(whatsappLink)} 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="bg-green-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-transform active:scale-95 shadow-xl flex items-center gap-2"
-                >
-                  <Smartphone className="w-6 h-6" /> {finalButtonText}
-                </a>
+                
+                <div className="flex flex-col gap-3 w-full max-w-xs">
+                  <a 
+                    href={formatUrl(whatsappLink)} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="bg-green-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-transform active:scale-95 shadow-xl flex items-center justify-center gap-2 w-full"
+                  >
+                    <Smartphone className="w-6 h-6" /> {finalButtonText}
+                  </a>
+
+                  <button 
+                    onClick={() => { setIsCompleted(false); setCurrentStep(0); window.scrollTo(0,0); }}
+                    className="px-8 py-3 border border-gray-200 text-gray-500 rounded-xl font-bold text-sm hover:bg-gray-50 hover:text-gray-900 transition-colors w-full"
+                  >
+                    Reiniciar Início
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="bg-white min-h-[400px] rounded-2xl shadow-sm border border-gray-200 p-6 md:p-10 mb-8 relative">
                 {renderStepContent(steps[currentStep])}
               </div>
             )
-          )}
+          )}    
         </main>
         {viewState !== 'editor' && (
           <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
