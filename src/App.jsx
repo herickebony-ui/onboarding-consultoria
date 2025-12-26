@@ -1892,34 +1892,42 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                       ) : (
                         <div className="space-y-3">
                           <div className="relative rounded-lg overflow-hidden border border-gray-200 group bg-gray-100">
-                            {/* Imagem com object-cover e position */}
+                            {/* AQUI ESTÁ O AJUSTE: h-80 (320px) para ficar igual ao site real */}
                             <img 
                               src={step.coverImage} 
                               alt="Capa" 
-                              className="w-full h-32 object-cover transition-all" 
+                              className="w-full h-80 object-cover transition-all" 
                               style={{ objectPosition: `center ${step.coverPosition || 50}%` }}
                             />
-                            {/* BOTÃO DE EXCLUIR */}
-                            <button
+                            
+                            {/* BOTÃO DE EXCLUIR (Com onMouseDown para garantir o clique) */}
+                            <button 
                               type="button"
                               onMouseDown={(e) => {
                                 e.preventDefault(); 
                                 e.stopPropagation();
                                 removeCover(index);
-                              }}
+                              }} 
                               className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full shadow-lg hover:bg-red-700 flex items-center justify-center z-50 cursor-pointer transition-transform hover:scale-110"
                               title="Remover Capa"
                             >
                               <Trash2 className="w-4 h-4 pointer-events-none"/>
                             </button>
                           </div>
-                          
+
                           {/* Slider de Posição */}
                           <div className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
                             <MoveVertical className="w-4 h-4 text-gray-400" />
                             <div className="flex-1">
                               <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Ajustar Posição Vertical</label>
-                              <input type="range" min="0" max="100" value={step.coverPosition || 50} onChange={(e) => updateStep(index, 'coverPosition', e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
+                              <input 
+                                type="range" 
+                                min="0" 
+                                max="100" 
+                                value={step.coverPosition || 50} 
+                                onChange={(e) => updateStep(index, 'coverPosition', e.target.value)} 
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                              />
                             </div>
                             <span className="text-xs text-gray-500 w-8 text-right">{step.coverPosition || 50}%</span>
                           </div>
