@@ -1610,7 +1610,11 @@ useEffect(() => {
           <img 
             src={step.coverImage} 
             alt="Capa" 
-            className="w-full h-auto object-contain rounded-t-2xl shadow-sm transition-all duration-300" 
+            className="w-full h-auto object-cover rounded-t-2xl shadow-sm transition-all duration-300" // Mudei para object-cover
+            style={{ 
+              objectPosition: `center ${step.coverPosition || 50}%`, // Aplica o seu ajuste vertical!
+              maxHeight: '400px' // Segura a altura para não ocupar a tela toda do celular
+            }}
           />
         </div>
       )}
