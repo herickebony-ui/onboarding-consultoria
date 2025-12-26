@@ -41,119 +41,163 @@ const generateSlug = (text) => {
     .replace(/\-\-+/g, '-');  
 };
 
-// --- EDITOR DE TEXTO AVANÇADO ---
+// ✅ HELPERS GLOBAIS (1 vez só, fora de componentes)
+const escapeRegExp = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const escapeHtml = (str) =>
+  String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
+    const formatUrl = (url) => {
+      if (!url) return "#";
+      return url.toString().startsWith("http") ? url : `https://${url}`;
+    };
+        
+const wrapHtmlForPdf = (innerHtml) => `
+  <style>
+    @page { size: A4; margin: 0; }
+    .pdf-root {
+      font-family: "Times New Roman", Times, serif !important;
+      font-size: 12pt !important;
+      line-height: 1.5 !important;
+      color: #000 !important;
+      width: 210mm;
+      padding: 20mm;
+      background: white;
+      text-align: justify;
+    }
+    .pdf-root * { color: #000 !important; }
+    .page-break { page-break-before: always; break-before: page; }
+  </style>
+  <div class="pdf-root">
+    ${innerHtml}
+  </div>
+`;
+
+// --- EDITOR DE TEXTO ---
 const RichTextEditor = ({ value, onChange }) => {
   const editorRef = useRef(null);
-  
-  const SignaturePad = ({ onSave, onClear }) => {
-    const canvasRef = useRef(null);
-    const [isDrawing, setIsDrawing] = useState(false);
-  
-    useEffect(() => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        canvas.width = canvas.parentElement.offsetWidth;
-        canvas.height = 200;
-        const ctx = canvas.getContext('2d');
-        ctx.lineWidth = 2;
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = '#000';
-      }
-    }, []);
-  
-    const getPos = (e) => {
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      return { x: clientX - rect.left, y: clientY - rect.top };
-    };
-  
-    const startDrawing = (e) => {
-      setIsDrawing(true);
-      const { x, y } = getPos(e);
-      const ctx = canvasRef.current.getContext('2d');
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-    };
-  
-    const draw = (e) => {
-      if (!isDrawing) return;
-      e.preventDefault(); // Evita rolar a tela no celular
-      const { x, y } = getPos(e);
-      const ctx = canvasRef.current.getContext('2d');
-      ctx.lineTo(x, y);
-      ctx.stroke();
-    };
-  
-    const stopDrawing = () => {
-      setIsDrawing(false);
-      if (onSave) onSave(canvasRef.current.toDataURL());
-    };
-  
-    const clear = () => {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (onClear) onClear();
-    };
-  
-    return (
-      <div className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner">
-        <canvas
-          ref={canvasRef}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
-          className="w-full bg-white cursor-crosshair touch-none"
-          style={{ height: '200px' }}
-        />
-        <div className="bg-gray-50 p-2 border-t border-gray-200 flex justify-end">
-          <button onClick={clear} className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1 rounded">Limpar Assinatura</button>
-        </div>
-      </div>
-    );
-  };
 
-  const execCmd = (command, value = null) => {
-    document.execCommand(command, false, value);
+  const execCmd = (command, val = null) => {
+    document.execCommand(command, false, val);
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
   const addLink = () => {
-    const selection = window.getSelection().toString();
+    const selectionText = window.getSelection()?.toString() || "";
     let url = prompt("Cole o link aqui:", "https://");
     if (!url) return;
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
       url = `https://${url}`;
     }
-    const text = prompt("Texto do link:", selection || "Clique aqui");
+
+    const text = prompt("Texto do link:", selectionText || "Clique aqui");
     if (!text) return;
-    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">${text}</a>`;
-    document.execCommand('insertHTML', false, linkHtml);
+
+    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#111;text-decoration:underline;">${escapeHtml(
+      text
+    )}</a>`;
+
+    document.execCommand("insertHTML", false, linkHtml);
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
 
+  // Quebra de página REAL
+  const insertPageBreak = () => {
+    const html = `<div class="page-break" style="page-break-before:always;break-before:page;height:1px;"></div>`;
+    document.execCommand("insertHTML", false, html);
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+
+  const insertSignaturePlaceholder = () => {
+    const html = `
+      <div class="no-break" style="margin-top:18px;">
+        <div style="height:60px; border-bottom:1px solid #111; width:260px;"></div>
+        <div style="font-size:10pt; color:#444; margin-top:6px;">Assinatura do Aluno</div>
+        <div>{{assinatura_aluno}}</div>
+      </div>
+    `;
+    document.execCommand("insertHTML", false, html);
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+
+  // Sincroniza o HTML
   useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value;
+    if (editorRef.current && editorRef.current.innerHTML !== (value || "")) {
+      editorRef.current.innerHTML = value || "";
     }
   }, [value]);
 
   return (
     <div className="border border-gray-300 rounded-md overflow-hidden bg-white">
-      <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-200 flex-wrap">
-        <button onClick={() => execCmd('bold')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Bold className="w-4 h-4" /></button>
-        <button onClick={() => execCmd('italic')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Italic className="w-4 h-4" /></button>
-        <button onClick={() => execCmd('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700"><Underline className="w-4 h-4" /></button>
+      {/* Toolbar fixa */}
+      <div className="sticky top-0 z-10 flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-200 flex-wrap">
+        <button onClick={() => execCmd("bold")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Negrito">
+          <Bold className="w-4 h-4" />
+        </button>
+        <button onClick={() => execCmd("italic")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Itálico">
+          <Italic className="w-4 h-4" />
+        </button>
+        <button onClick={() => execCmd("underline")} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Sublinhado">
+          <Underline className="w-4 h-4" />
+        </button>
+
         <div className="w-px h-4 bg-gray-300 mx-1"></div>
-        <button onClick={addLink} className="p-1.5 hover:bg-blue-100 text-blue-600 rounded" title="Inserir Link Personalizado"><LinkIcon className="w-4 h-4" /></button>
+
+        <button onClick={addLink} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Inserir Link">
+          <LinkIcon className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={insertSignaturePlaceholder}
+          className="p-1.5 hover:bg-gray-200 rounded text-gray-700"
+          title="Inserir bloco de assinatura (placeholder)"
+        >
+          <FileSignature className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={insertPageBreak}
+          className="px-2 py-1 text-xs font-bold border border-gray-300 rounded hover:bg-gray-100 text-gray-700"
+          title="Inserir quebra de página"
+        >
+          Quebra de Página
+        </button>
       </div>
-      <div ref={editorRef} contentEditable className="p-3 min-h-[100px] text-sm text-gray-800 focus:outline-none prose prose-sm max-w-none" onInput={(e) => onChange(e.currentTarget.innerHTML)} onBlur={(e) => onChange(e.currentTarget.innerHTML)}></div>
+
+      {/* Área do documento */}
+      <div className="max-h-[70vh] overflow-y-auto bg-gray-100 p-4">
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={() => {
+            if (editorRef.current) onChange(editorRef.current.innerHTML);
+          }}
+          className="outline-none prose max-w-none"
+          style={{
+            width: "210mm",
+            minHeight: "297mm",
+            margin: "20px auto",
+            padding: "20mm",
+            backgroundColor: "#fff",
+            boxShadow: "0 0 15px rgba(0,0,0,0.2)",
+            fontFamily: "Times New Roman, serif",
+            fontSize: "12pt",
+            lineHeight: "1.5",
+            color: "#000",
+            boxSizing: "border-box",
+            backgroundImage: "linear-gradient(to bottom, transparent 296mm, #d1d5db 296mm, #d1d5db 297mm)",
+            backgroundSize: "100% 297mm",
+            position: "relative"
+          }}
+        />
+      </div>
     </div>
   );
 };
@@ -232,6 +276,29 @@ const SignaturePad = ({ onSave, onClear }) => {
   );
 };
 
+// --- FUNÇÃO GLOBAL: PREENCHER CONTRATO ---
+// (Esta função deve ficar FORA de qualquer componente para ser usada por todos)
+const applyStudentValuesToContract = (html, values) => {
+  let out = html || "";
+  Object.entries(values || {}).forEach(([key, val]) => {
+    const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
+    const safe = String(val ?? "").trim();
+    out = out.replace(regex, safe ? escapeHtml(safe) : "________");
+  });
+ 
+  // Substitui o placeholder da assinatura pela linha preta
+  out = out.replace(
+    /{{\s*assinatura_aluno\s*}}/g,
+    `<div style="height:60px; border-bottom:1px solid #111; width:260px; margin-top:10px;"></div>`
+  );
+  
+  // Limpa variáveis residuais
+  out = out.replace(/{{\s*[\w_]+\s*}}/g, "________");
+  
+  return out;
+};
+
 // --- COMPONENTE DASHBOARD (ADMIN) ---
 const Dashboard = ({ 
   onSelectPlan, 
@@ -246,44 +313,52 @@ const Dashboard = ({
 }) => {
 
   // Controle das Abas
-  const [activeTab, setActiveTab] = useState('flows'); // Começa na aba de fluxos
+  const [activeTab, setActiveTab] = useState('flows'); 
 
-  // Estados para Gestão de Fluxos (Faltavam estas variáveis)
+  // --- ESTADOS DE FLUXOS ---
   const [newPlanName, setNewPlanName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [editName, setEditName] = useState("");
   const [duplicatingPlan, setDuplicatingPlan] = useState(null);
   const [duplicateName, setDuplicateName] = useState("");
-  
-  // Estados para Alunos
+
+  // --- ESTADOS DE ALUNOS & CONVITE ---
   const [isInviting, setIsInviting] = useState(false);
+  
+  // Campos básicos do convite
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentPhone, setNewStudentPhone] = useState("");
   const [selectedPlanForStudent, setSelectedPlanForStudent] = useState("");
-  
-  // Campos do Contrato
-  const [contractDuration, setContractDuration] = useState(""); 
-  const [contractValue, setContractValue] = useState("");    
 
-  // Texto Padrão
-  const defaultContract = `CONTRATO DE PRESTAÇÃO DE SERVIÇOS
+  // Campos para o Template Dinâmico
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [adminFieldValues, setAdminFieldValues] = useState({});
 
-CONTRATANTE: {{NOME_ALUNO}}, CPF nº {{CPF_ALUNO}}, residente em {{ENDERECO_ALUNO}}.
+  // --- ESTADOS DE MODELOS (TEMPLATES) ---
+  const [templates, setTemplates] = useState([]);
+  const [isEditingTemplate, setIsEditingTemplate] = useState(false);
+  const [currentTemplate, setCurrentTemplate] = useState({ id: '', name: '', content: '', fields: [] });
+  const [newField, setNewField] = useState({ key: '', label: '', type: 'text', owner: 'student' });
 
-CONTRATADO: EBONY TEAM NUTRIÇÃO E TREINAMENTO.
+  // --- EFEITOS (LOADERS) ---
+  useEffect(() => {
+    if (activeTab === 'templates' || isInviting) {
+      const loadTemplates = async () => {
+        try {
+          const database = db; 
+          if (!database) return;
+          const q = await getDocs(collection(database, "contract_templates"));
+          const data = q.docs.map(d => ({ ...d.data(), id: d.id }));
+          setTemplates(data); 
+          console.log("Templates carregados:", data.length);
+        } catch (e) { console.error("Erro ao buscar templates:", e); }
+      };
+      loadTemplates();
+    }
+  }, [activeTab, isInviting]);
 
-OBJETO: Prestação de serviços de consultoria fitness online.
-
-VIGÊNCIA E VALOR:
-O plano terá duração de {{DURACAO}}, com início imediato após a assinatura.
-O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as partes.
-
-(Este documento será assinado eletronicamente)`;
-
-  const [contractText, setContractText] = useState(defaultContract);
-
-  // -- AÇÕES DE FLUXO --
+  // --- FUNÇÕES DE FLUXO ---
   const handleCreate = () => {
     if(!newPlanName) return;
     const id = generateSlug(newPlanName);
@@ -310,37 +385,53 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
     setDuplicatingPlan(null);
   };
 
-  // -- AÇÕES DE ALUNO --
+  // --- FUNÇÕES DE ALUNO (CONVITE INTELIGENTE) ---
   const handleCreateInvite = () => {
-    if (!newStudentName || !newStudentPhone || !selectedPlanForStudent || !contractDuration || !contractValue) {
-      alert("Preencha todos os campos obrigatórios (Nome, Whats, Fluxo, Duração e Valor).");
+    if (!newStudentName || !newStudentPhone || !selectedPlanForStudent || !selectedTemplateId) {
+      alert("Preencha Nome, WhatsApp, Fluxo e escolha um Modelo de Contrato.");
       return;
     }
 
-    // Substituição de variáveis
-    let finalContract = contractText;
-    finalContract = finalContract.replace(/{{DURACAO}}/g, contractDuration);
-    finalContract = finalContract.replace(/{{VALOR}}/g, contractValue);
-    finalContract = finalContract.replace(/{{NOME_ALUNO}}/g, newStudentName);
+    const template = templates.find(t => t.id === selectedTemplateId);
+    if (!template) return alert("Modelo não encontrado.");
+
+    let finalContractHTML = template.content;
+    
+    // Substitui campos do Admin
+    const adminFields = template.fields.filter(f => f.owner === 'admin');
+    
+    for (const field of adminFields) {
+      const val = adminFieldValues[field.key];
+      if (!val) {
+        alert(`O campo "${field.label}" é obrigatório para o Admin.`);
+        return;
+      }
+      const regex = new RegExp(`{{${field.key}}}`, 'g');
+      finalContractHTML = finalContractHTML.replace(
+        regex,
+        `<span class="contract-var">${escapeHtml(val)}</span>`
+      );
+    }
+
+    const studentFields = template.fields.filter(f => f.owner === 'student');
 
     onCreateStudent({
       name: newStudentName,
       phone: newStudentPhone.replace(/\D/g, ''),
       planId: selectedPlanForStudent,
-      contractText: finalContract, 
-      contractDuration,
-      contractValue,
+      contractText: finalContractHTML, 
+      pendingFields: studentFields,
+      templateId: selectedTemplateId,
       status: 'pending',
       createdAt: new Date().toISOString()
     });
+    
     setIsInviting(false);
     
-    // Reset
     setNewStudentName("");
     setNewStudentPhone("");
-    setContractDuration("");
-    setContractValue("");
-    setContractText(defaultContract);
+    setAdminFieldValues({});
+    setSelectedTemplateId("");
   };
 
   const copyStudentLink = (studentId) => {
@@ -349,61 +440,7 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
     alert("Link do Convite copiado! Envie para o aluno:\n" + url);
   };
 
-  const generateContractPDF = (student) => {
-    // Validação de segurança
-    if (!student.signature?.image) return alert("Este aluno ainda não assinou.");
-
-    const doc = new jsPDF();
-    
-    // 1. Cabeçalho
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("CONTRATO DE PRESTAÇÃO DE SERVIÇOS", 105, 20, null, null, "center");
-    
-    // 2. Texto do Contrato (Preenchendo os dados)
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    
-    let textBody = student.contractText || "";
-    // Garante que as variáveis sejam substituídas pelos dados reais
-    textBody = textBody
-      .replace(/{{NOME_ALUNO}}/g, student.name)
-      .replace(/{{CPF_ALUNO}}/g, student.studentData?.cpf || "________________")
-      .replace(/{{ENDERECO_ALUNO}}/g, student.studentData?.address || "________________")
-      .replace(/{{DURACAO}}/g, student.contractDuration || "___")
-      .replace(/{{VALOR}}/g, student.contractValue || "___");
-
-    // Quebra o texto para caber na largura da página A4
-    const splitText = doc.splitTextToSize(textBody, 170);
-    
-    // 3. Insere o texto
-    doc.text(splitText, 20, 40);
-
-    // 4. Calcula onde colocar a assinatura (para não ficar em cima do texto)
-    let yPos = 40 + (splitText.length * 5) + 20;
-    
-    // Se o texto for muito longo, cria nova página
-    if (yPos > 250) { 
-        doc.addPage(); 
-        yPos = 40; 
-    }
-
-    // 5. Insere a Assinatura e Metadados
-    doc.setFont("helvetica", "bold");
-    doc.text("Assinado Digitalmente por:", 20, yPos);
-    
-    // Imagem da assinatura
-    doc.addImage(student.signature.image, 'PNG', 20, yPos + 5, 60, 30);
-    
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "italic");
-    doc.text(`Assinado em: ${new Date(student.studentData?.signedAt || Date.now()).toLocaleString()}`, 20, yPos + 40);
-    doc.text(`IP: ${student.signature?.userAgent || 'N/A'}`, 20, yPos + 45);
-
-    // 6. Download
-    doc.save(`Contrato_${student.name.replace(/\s+/g, '_')}.pdf`);
-  };
-
+  // --- RENDERIZAÇÃO DO DASHBOARD ---
   return (
     <div className="min-h-screen bg-gray-50 p-6 font-sans">
       <div className="max-w-6xl mx-auto">
@@ -414,27 +451,16 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
             <p className="text-gray-500">Gestão de Consultoria</p>
           </div>
           
-          {/* Menu de Abas */}
           <div className="bg-white p-1 rounded-xl border border-gray-200 flex shadow-sm">
-            <button 
-              onClick={() => setActiveTab('flows')}
-              className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'flows' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
-              Meus Fluxos
-            </button>
-            <button 
-              onClick={() => setActiveTab('students')}
-              className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'students' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
-              <Users className="w-4 h-4"/> Meus Alunos
-            </button>
+            <button onClick={() => setActiveTab('flows')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'flows' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>Meus Fluxos</button>
+            <button onClick={() => setActiveTab('students')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'students' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><Users className="w-4 h-4"/> Meus Alunos</button>
+            <button onClick={() => setActiveTab('templates')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'templates' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><FileText className="w-4 h-4"/> Modelos</button>
           </div>
         </div>
 
-        {/* --- ABA: MEUS FLUXOS --- */}
+        {/* --- ABA 1: MEUS FLUXOS --- */}
         {activeTab === 'flows' && (
           <div className="animate-in fade-in duration-300">
-            {/* Modal Editar */}
             {editingPlan && (
               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                 <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
@@ -447,7 +473,6 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
                 </div>
               </div>
             )}
-            {/* Modal Duplicar */}
             {duplicatingPlan && (
               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                 <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
@@ -502,10 +527,9 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
           </div>
         )}
 
-        {/* --- ABA: MEUS ALUNOS --- */}
-        {activeTab === 'students' && (
+{/* --- ABA 2: MEUS ALUNOS --- */}
+{activeTab === 'students' && (
           <div className="animate-in fade-in duration-300">
-            
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-800">Lista de Alunos</h2>
               <button onClick={() => setIsInviting(true)} className="bg-black text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-800 transition-colors shadow-lg">
@@ -513,73 +537,141 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
               </button>
             </div>
 
-            {/* Modal Novo Aluno */}
+            {/* Modal Novo Aluno - ESTRUTURA CORRIGIDA PARA PREVIEW */}
             {isInviting && (
               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col md:flex-row animate-in fade-in zoom-in duration-200">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in duration-200">
                   
-                  {/* Lado Esquerdo: Dados */}
+                  {/* COLUNA ESQUERDA: Formulário e Dados */}
                   <div className="w-full md:w-1/3 p-6 border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 space-y-4 overflow-y-auto">
-                    <h3 className="font-bold text-lg mb-4">Dados do Convite</h3>
+                    <h3 className="font-bold text-lg mb-4 text-gray-800">Dados do Convite</h3>
                     
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome do Aluno</label>
-                      <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-black" placeholder="João Silva"/>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">WhatsApp (Senha)</label>
-                      <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-black" placeholder="11999998888"/>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Fluxo de Treino</label>
-                      <select value={selectedPlanForStudent} onChange={(e) => setSelectedPlanForStudent(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-black">
-                        <option value="">Selecione um fluxo...</option>
-                        {plans.map(p => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}
-                      </select>
-                    </div>
-                    
-                    <div className="pt-4 border-t border-gray-200">
-                      <h4 className="font-bold text-sm mb-3">Dados do Contrato</h4>
-                      <div className="space-y-3">
+                    <div className="space-y-3">
                         <div>
-                          <label className="block text-xs font-bold text-blue-600 uppercase mb-1">Duração do Plano</label>
-                          <input type="text" value={contractDuration} onChange={(e) => setContractDuration(e.target.value)} className="w-full p-2 border border-blue-200 rounded bg-blue-50 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: 6 Meses"/>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome do Aluno</label>
+                          <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-blue-500" placeholder="Ex: João Silva"/>
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-blue-600 uppercase mb-1">Valor Acordado</label>
-                          <input type="text" value={contractValue} onChange={(e) => setContractValue(e.target.value)} className="w-full p-2 border border-blue-200 rounded bg-blue-50 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: R$ 500,00"/>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">WhatsApp</label>
+                          <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-blue-500" placeholder="11999998888"/>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Lado Direito: Preview do Contrato */}
-                  <div className="w-full md:w-2/3 p-6 flex flex-col">
-                    <div className="flex justify-between items-center mb-2">
-                       <h3 className="font-bold text-lg">Minuta do Contrato</h3>
-                       <button onClick={() => setIsInviting(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5"/></button>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Fluxo de Treino</label>
+                          <select value={selectedPlanForStudent} onChange={(e) => setSelectedPlanForStudent(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-blue-500">
+                            <option value="">Selecione um fluxo...</option>
+                            {plans.map(p => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-blue-600 uppercase mb-1">Modelo de Contrato</label>
+                          <select 
+                            value={selectedTemplateId} 
+                            onChange={(e) => {
+                              setSelectedTemplateId(e.target.value);
+                              setAdminFieldValues({}); 
+                            }} 
+                            className="w-full p-2 border border-blue-300 rounded bg-blue-50 outline-none font-bold text-blue-800 focus:ring-2 focus:ring-blue-200"
+                          >
+                            <option value="">Selecione o Modelo...</option>
+                            {templates.map(t => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                        </div>
                     </div>
                     
-                    {/* CORRIGIDO O ERRO DE SINTAXE AQUI */}
-                    <p className="text-xs text-gray-500 mb-4">Os campos <span className="text-blue-600 font-bold">{`{{...}}`}</span> serão substituídos automaticamente.</p>
-                    
-                    <textarea 
-                      value={contractText} 
-                      onChange={(e) => setContractText(e.target.value)} 
-                      className="flex-1 w-full p-4 border border-gray-200 rounded-lg text-sm font-mono leading-relaxed bg-white resize-none focus:ring-2 focus:ring-black outline-none min-h-[300px]"
-                    />
-
-                    <div className="mt-4 flex justify-end gap-3">
-                      <button onClick={() => setIsInviting(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-bold">Cancelar</button>
-                      <button onClick={handleCreateInvite} className="px-4 py-2 bg-black text-white rounded-lg font-bold hover:bg-gray-800 shadow-lg">Gerar Convite</button>
-                    </div>
+                    {/* CAMPOS DINÂMICOS DO ADMIN */}
+                    {selectedTemplateId && (
+                        <div className="pt-4 border-t border-gray-200 animate-in fade-in">
+                          <h4 className="font-bold text-sm mb-3 text-blue-800">Preencher Dados da Minuta</h4>
+                          <div className="space-y-3 p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                              {templates.find(t => t.id === selectedTemplateId)?.fields?.filter(f => f.owner === 'admin').map((field, idx) => (
+                                  <div key={idx}>
+                                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">{field.label}</label>
+                                      <input 
+                                        type={field.type === 'date' ? 'date' : 'text'} 
+                                        placeholder={`Digite ${field.label}...`} 
+                                        value={adminFieldValues[field.key] || ''} 
+                                        onChange={(e) => setAdminFieldValues({...adminFieldValues, [field.key]: e.target.value})} 
+                                        className="w-full p-2 border border-gray-200 rounded text-sm outline-none focus:border-blue-500"
+                                      />
+                                  </div>
+                              ))}
+                          </div>
+                        </div>
+                    )}
                   </div>
 
+                  {/* COLUNA DIREITA: Preview em tempo real */}
+                  <div className="w-full md:w-2/3 p-6 flex flex-col bg-white overflow-hidden">
+                    <div className="flex justify-between items-center mb-4">
+                       <h3 className="font-bold text-lg text-gray-800">Prévia do Contrato</h3>
+                       <button onClick={() => setIsInviting(false)} className="p-1 hover:bg-gray-100 rounded-full text-gray-400 transition-colors">
+                         <X className="w-6 h-6"/>
+                       </button>
+                    </div>
+                    
+                    <div className="flex-1 w-full p-8 border border-gray-200 rounded-lg text-sm leading-relaxed bg-gray-50 overflow-y-auto min-h-[400px] shadow-inner relative">
+                        {selectedTemplateId ? (
+                             <div 
+                               dangerouslySetInnerHTML={{ 
+                                __html: (() => {
+                                  const tpl = templates.find(t => String(t.id) === String(selectedTemplateId));
+                                  if (!tpl?.content) return "<p>Modelo sem conteúdo.</p>";
+                                
+                                  let html = tpl.content;
+                                
+                                  // aplica campos do admin na prévia
+                                  (tpl.fields || [])
+                                    .filter(f => f.owner === "admin")
+                                    .forEach((f) => {
+                                      const safeKey = String(f.key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                                      const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
+                                      html = html.replace(regex, adminFieldValues[f.key] ? `<b>${adminFieldValues[f.key]}</b>` : "________________");
+                                    });
+                                
+                                  // campos do aluno ficam em branco na prévia
+                                  (tpl.fields || [])
+                                    .filter(f => f.owner === "student")
+                                    .forEach((f) => {
+                                      const safeKey = String(f.key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                                      const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
+                                      html = html.replace(regex, "________________");
+                                    });
+                                
+                                  return html;
+                                })()                                 
+                               }} 
+                               className="prose prose-sm max-w-none text-gray-700" 
+                             />
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-3">
+                                <FileText className="w-16 h-16 opacity-10"/>
+                                <p className="font-medium italic">Selecione um modelo à esquerda para visualizar o contrato.</p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-6 flex justify-end gap-3">
+                      <button 
+                        onClick={() => setIsInviting(false)} 
+                        className="px-6 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-bold transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        onClick={handleCreateInvite} 
+                        className="px-8 py-2 bg-black text-white rounded-lg font-bold hover:bg-gray-800 shadow-lg flex items-center gap-2 transition-transform active:scale-95"
+                      >
+                        <span>Gerar Convite</span> 
+                        <ChevronRight className="w-4 h-4"/>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
-
-            {/* Lista de Alunos */}
+            {/* Lista de Alunos na Tabela */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               {students.length === 0 ? (
                 <div className="p-12 text-center text-gray-500">
@@ -592,7 +684,6 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
                         <th className="p-4 text-xs font-bold text-gray-500 uppercase">Aluno</th>
-                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Contrato</th>
                         <th className="p-4 text-xs font-bold text-gray-500 uppercase">Status</th>
                         <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Ações</th>
                       </tr>
@@ -605,47 +696,27 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
                             <div className="text-xs text-gray-400">{student.phone}</div>
                           </td>
                           <td className="p-4">
-                            <div className="text-xs text-gray-600 font-medium">
-                              {student.contractDuration} - {student.contractValue}
-                            </div>
-                            <div className="text-[10px] text-gray-400">
-                              {plans.find(p => p.id === student.planId)?.name || student.planId}
-                            </div>
-                          </td>
-                          <td className="p-4">
                             {student.status === 'signed' ? (
-                              <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 py-1 px-2 rounded-full text-xs font-bold border border-green-200">
-                                <CheckCircle className="w-3 h-3"/> Assinado
-                              </span>
+                                <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 py-1 px-2 rounded-full text-xs font-bold border border-green-200">
+                                    <CheckCircle className="w-3 h-3"/> Assinado
+                                </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-700 py-1 px-2 rounded-full text-xs font-bold border border-yellow-200">
-                                <Loader className="w-3 h-3"/> Pendente
-                              </span>
+                                <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-700 py-1 px-2 rounded-full text-xs font-bold border border-yellow-200">
+                                    <Loader className="w-3 h-3"/> Pendente
+                                </span>
                             )}
                           </td>
                           <td className="p-4 text-right flex justify-end gap-2">
-                          {student.status === 'signed' && (
-                              <button 
-                                onClick={() => generateContractPDF(student)} 
-                                className="p-2 border border-gray-200 rounded-lg text-green-600 hover:bg-green-50 hover:border-green-200 transition-colors"
-                                title="Baixar Contrato PDF"
-                              >
-                                <FileSignature className="w-4 h-4" />
-                              </button>
+                            {student.status === 'signed' && (
+                                <button onClick={() => generateContractPDF(student)} className="p-2 border border-gray-200 rounded-lg text-green-600 hover:bg-green-50 hover:border-green-200" title="Baixar PDF">
+                                    <FileSignature className="w-4 h-4" />
+                                </button>
                             )}
-                            {/* ------------------------------------- */}
-                            <button 
-                              onClick={() => copyStudentLink(student.id)} 
-                              className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
-                              title="Copiar Link do Convite"
-                            >
-                              <Share2 className="w-4 h-4" />
+                            <button onClick={() => copyStudentLink(student.id)} className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50" title="Link">
+                                <Share2 className="w-4 h-4" />
                             </button>
-                            <button 
-                              onClick={() => {if(confirm('Remover aluno?')) onDeleteStudent(student.id)}} 
-                              className="p-2 border border-gray-200 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
+                            <button onClick={() => {if(confirm('Remover?')) onDeleteStudent(student.id)}} className="p-2 border border-gray-200 rounded-lg text-gray-400 hover:bg-red-50">
+                                <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
                         </tr>
@@ -657,11 +728,67 @@ O valor total acordado é de {{VALOR}}, a ser pago conforme combinado entre as p
             </div>
           </div>
         )}
+        
+        {/* --- ABA 3: MEUS MODELOS (ETAPA 1) --- */}
+        {activeTab === 'templates' && (
+          <div className="animate-in fade-in duration-300">
+            {!isEditingTemplate ? (
+              <div>
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-800">Meus Modelos de Contrato</h2>
+                  <button onClick={() => { setCurrentTemplate({ id: '', name: '', content: '', fields: [] }); setIsEditingTemplate(true); }} className="bg-black text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-800 shadow-lg"><Plus className="w-5 h-5" /> Novo Modelo</button>
+                </div>
+                <div className="grid md:grid-cols-3 gap-4">
+                  {templates.map(t => (
+                    <div key={t.id} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all">
+                      <h3 className="font-bold text-lg mb-2">{t.name}</h3>
+                      <p className="text-xs text-gray-400 mb-4">ID: {t.id}</p>
+                      <p className="text-sm text-gray-600 mb-4">{t.fields?.length || 0} variáveis configuradas.</p>
+                      <button onClick={() => { setCurrentTemplate(t); setIsEditingTemplate(true); }} className="w-full py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-bold hover:bg-blue-100">Editar</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col h-[85vh]">
+                <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-xl">
+                  <div className="flex items-center gap-4 flex-1">
+                    <button onClick={() => setIsEditingTemplate(false)}><ArrowLeft className="w-5 h-5 text-gray-500"/></button>
+                    <input type="text" placeholder="Nome do Modelo" value={currentTemplate.name} onChange={e => setCurrentTemplate({...currentTemplate, name: e.target.value})} className="bg-transparent font-bold text-lg outline-none w-full"/>
+                  </div>
+                  <button onClick={handleSaveTemplate} className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 flex items-center gap-2"><Save className="w-4 h-4"/> Salvar Modelo</button>
+                </div>
+                <div className="flex-1 overflow-hidden h-full flex flex-col md:flex-row">
+                  <div className="w-full md:w-2/3 p-6 overflow-y-auto border-r border-gray-200">
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Texto do Contrato</label>
+                    <RichTextEditor value={currentTemplate.content} onChange={(html) => setCurrentTemplate({...currentTemplate, content: html})} />
+                  </div>
+                  <div className="w-full md:w-1/3 p-6 bg-gray-50 overflow-y-auto">
+                    <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Settings className="w-4 h-4"/> Variáveis</h3>
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 mb-6 shadow-sm">
+                      <h4 className="text-xs font-bold text-blue-600 uppercase mb-3">Nova Variável</h4>
+                      <div className="space-y-3">
+                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Chave</label><div className="flex items-center gap-1"><span className="text-gray-400 font-mono text-sm">{`{{`}</span><input type="text" value={newField.key} onChange={e => setNewField({...newField, key: e.target.value.replace(/[^a-z0-9_]/g, '')})} className="flex-1 p-1 border-b border-gray-300 outline-none font-mono text-sm bg-transparent"/><span className="text-gray-400 font-mono text-sm">{`}}`}</span></div></div>
+                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Nome (Label)</label><input type="text" value={newField.label} onChange={e => setNewField({...newField, label: e.target.value})} className="w-full p-2 border border-gray-200 rounded text-sm"/></div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div><label className="text-[10px] font-bold text-gray-400 uppercase">Quem?</label><select value={newField.owner} onChange={e => setNewField({...newField, owner: e.target.value})} className="w-full p-2 border border-gray-200 rounded text-sm bg-white"><option value="student">Aluno</option><option value="admin">Eu (Admin)</option></select></div>
+                          <div><label className="text-[10px] font-bold text-gray-400 uppercase">Tipo</label><select value={newField.type} onChange={e => setNewField({...newField, type: e.target.value})} className="w-full p-2 border border-gray-200 rounded text-sm bg-white"><option value="text">Texto</option><option value="number">Número</option><option value="money">Dinheiro</option><option value="date">Data</option></select></div>
+                        </div>
+                        <button onClick={addFieldToTemplate} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 mt-2">Adicionar</button>
+                      </div>
+                    </div>
+                    <div className="space-y-2">{currentTemplate.fields && currentTemplate.fields.map((field, idx) => (<div key={idx} className="bg-white p-3 rounded-lg border border-gray-200 flex justify-between items-center"><div><div className="font-mono text-xs font-bold text-blue-600 bg-blue-50 inline-block px-1 rounded mb-1">{`{{${field.key}}}`}</div><div className="text-xs text-gray-500">{field.label}</div></div><button onClick={() => removeFieldFromTemplate(idx)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button></div>))}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
     </div>
-  )
-}
+  );
+};
 
 const OnboardingConsultoria = () => {
   const ADMIN_PASSWORD = "ebony";
@@ -742,44 +869,59 @@ const OnboardingConsultoria = () => {
   };
   
   // --- ⬇️ LÓGICA DE ASSINATURA DO ALUNO (COLE AQUI) ⬇️ ---
-  
-  const [studentCpf, setStudentCpf] = useState("");
-  const [studentAddress, setStudentAddress] = useState("");
   const [signatureData, setSignatureData] = useState(null);
+  const [studentFieldValues, setStudentFieldValues] = useState({});
 
   const handleSignContract = async () => {
-    if (!studentCpf || !studentAddress || !signatureData) {
-      alert("Por favor, preencha CPF, Endereço e faça sua assinatura.");
+    if (!activeStudent || !db) return;
+
+    // 1. Verifica campos pendentes
+    const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];
+    const requiredKeys = pending
+      .filter(f => f?.owner === "student" && f?.key)
+      .map(f => f.key);
+
+    // 2. Valida se preencheu tudo
+    const missing = requiredKeys.filter((k) => !String(studentFieldValues?.[k] ?? "").trim());
+
+    if (missing.length > 0) {
+      const firstMissing = pending.find(f => f.key === missing[0]);
+      alert(`Por favor, preencha: ${firstMissing?.label || missing[0]}`);
       return;
     }
-    
-    if(!activeStudent || !db) return;
+
+    // 3. Valida se desenhou a assinatura
+    if (!signatureData) {
+      alert("Por favor, faça sua assinatura.");
+      return;
+    }
 
     try {
-      setViewState('loading');
-      // Atualiza o aluno no Firestore
+      setViewState("loading");
+
+      // 4. Atualiza no Firebase
       await updateDoc(doc(db, "students", activeStudent.id), {
-        status: 'signed',
+        status: "signed",
         studentData: {
-          cpf: studentCpf,
-          address: studentAddress,
-          signedAt: new Date().toISOString()
+          ...studentFieldValues,
+          signedAt: new Date().toISOString(),
         },
         signature: {
-          image: signatureData, // Base64 da imagem
-          userAgent: navigator.userAgent
-        }
+          image: signatureData,
+          userAgent: navigator.userAgent,
+        },
       });
 
-      // Atualiza estado local e libera o fluxo
-      setActiveStudent(prev => ({ ...prev, status: 'signed' }));
+      // 5. Atualiza estado local e redireciona
+      setActiveStudent(prev => ({ ...prev, status: "signed" }));
       await loadPlan(activeStudent.planId);
-      setViewState('student_view_flow');
+      setViewState("student_view_flow");
       alert("Contrato assinado com sucesso! Bem-vindo(a)!");
+
     } catch (e) {
       console.error(e);
       alert("Erro ao salvar assinatura. Tente novamente.");
-      setViewState('student_login'); // Volta se der erro
+      setViewState("student_login");
     }
   };
 
@@ -956,6 +1098,88 @@ const OnboardingConsultoria = () => {
       alert("✅ Fluxo salvo com sucesso!");
     } catch (error) { alert("Erro ao salvar."); console.error(error); } finally { setIsSaving(false); }
   };
+
+  // --- FUNÇÕES DE NAVEGAÇÃO E EDITOR ---
+  const updateStep = (index, field, value) => {
+    const newSteps = [...steps];
+    newSteps[index] = { ...newSteps[index], [field]: value };
+    setSteps(newSteps);
+  };
+
+  const moveStep = (index, direction) => {
+    if (direction === 'up' && index > 0) {
+      const newSteps = [...steps];
+      [newSteps[index], newSteps[index - 1]] = [newSteps[index - 1], newSteps[index]];
+      setSteps(newSteps);
+    } else if (direction === 'down' && index < steps.length - 1) {
+      const newSteps = [...steps];
+      [newSteps[index], newSteps[index + 1]] = [newSteps[index + 1], newSteps[index]];
+      setSteps(newSteps);
+    }
+  };
+
+  const removeStep = (index) => {
+    if (steps.length <= 1) return alert("Você precisa ter pelo menos uma etapa.");
+    const newSteps = steps.filter((_, i) => i !== index);
+    setSteps(newSteps);
+  };
+
+  const handleCoverUpload = (index, e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      updateStep(index, 'coverImage', url);
+    }
+  };
+
+  const removeCover = (index) => updateStep(index, 'coverImage', null);
+
+  const handleImageUpload = (index, e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      const currentImages = steps[index].images || [];
+      updateStep(index, 'images', [...currentImages, url]);
+    }
+  };
+
+  const removeImage = (stepIndex, imgIndex) => {
+    const currentImages = steps[stepIndex].images || [];
+    const newImages = currentImages.filter((_, i) => i !== imgIndex);
+    updateStep(stepIndex, 'images', newImages);
+  };
+
+  const handlePdfUpload = (index, e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      const newSteps = [...steps];
+      newSteps[index] = { ...newSteps[index], pdfData: url, pdfName: file.name };
+      setSteps(newSteps);
+    }
+  };
+
+  const removePdf = (index) => {
+    const newSteps = [...steps];
+    newSteps[index] = { ...newSteps[index], pdfData: null, pdfName: null };
+    setSteps(newSteps);
+  };
+
+  const handleNext = () => {
+    if (currentStep < steps.length - 1) {
+      setCurrentStep(currentStep + 1);
+      window.scrollTo(0, 0);
+    } else {
+      setIsCompleted(true);
+    }
+  };
+
+  const handlePrev = () => {
+    if (currentStep > 0) {
+      setCurrentStep(currentStep - 1);
+      window.scrollTo(0, 0);
+    }
+  };
   
   if (viewState === 'dashboard') {
     return (
@@ -1026,26 +1250,6 @@ const OnboardingConsultoria = () => {
     </div>
   );
 
-  if (viewState === 'error') return <div className="min-h-screen flex items-center justify-center text-gray-500">Link inválido ou expirado.</div>;
-
-  if (viewState === 'dashboard') {
-    return (
-      <Dashboard 
-        plans={availablePlans} 
-        // 👇 AQUI ESTAVAM OS ERROS DE REFERENCE ERROR
-        onSelectPlan={handleEditPlan}          // Conecta com a função que criamos acima
-        onCreatePlan={handleCreatePlan}        // Já estava certo
-        onDeletePlan={handleDeletePlan}        // Já estava certo
-        onDuplicatePlan={handleDuplicatePlan}  // Corrigido (era onDuplicatePlan)
-        onUpdatePlanMeta={handleUpdatePlanMetadata} // Corrigido (era onUpdatePlanMeta)
-        // 👆 FIM DAS CORREÇÕES DE PROPS
-        
-        students={students}
-        onCreateStudent={onCreateStudent}
-        onDeleteStudent={handleDeleteStudent} 
-      />
-    );
-  }
 
   // TELA 3: LOGIN DO ALUNO
   if (viewState === 'student_login') return (
@@ -1062,7 +1266,7 @@ const OnboardingConsultoria = () => {
           placeholder="(DDD) 90000-0000" 
           value={studentPhoneInput} 
           onChange={e=>setStudentPhoneInput(e.target.value)} 
-          onKeyDown={e=>e.key==='Enter'&&handleStudentLogin()}
+          onKeyDown={e=>e.key==='Enter'&&handleStudentLoginV2()}
           className="w-full p-4 border border-gray-200 rounded-xl mb-4 focus:ring-2 focus:ring-black outline-none text-center text-lg tracking-widest font-bold bg-gray-50 transition-all"
         />
         
@@ -1075,65 +1279,95 @@ const OnboardingConsultoria = () => {
       </div>
     </div>
   );
-  // TELA DE ASSINATURA DE CONTRATO
+
+  // --- AQUI ESTAVA O ERRO: O CÓDIGO "LIXO" FOI REMOVIDO DAQUI ---
+
   if (viewState === 'contract_sign') {
-    // Substitui variáveis do contrato visualmente
-    const contractDisplay = activeStudent?.contractText
-      .replace(/{{CPF_ALUNO}}/g, studentCpf || "_________________")
-      .replace(/{{ENDERECO_ALUNO}}/g, studentAddress || "_________________");
+    const baseHTML = activeStudent?.contractText || "<p>Contrato não encontrado.</p>";
+
+    // campos do modelo que são do aluno
+    const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];
+
+    // junta: campos dinâmicos + CPF/Endereço (que tu mantém como fixos)
+    const mergedValues = {
+      ...studentFieldValues,
+    };
+
+    // monta HTML do contrato já preenchido
+    const contractDisplay = applyStudentValuesToContract(baseHTML, mergedValues);
 
     return (
       <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
-        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom-8">
-          <div className="bg-black p-6 text-white text-center">
-            <h1 className="text-2xl font-bold">Contrato de Prestação de Serviços</h1>
-            <p className="text-gray-400 text-sm mt-1">Leia atentamente e assine ao final</p>
-          </div>
-          
-          <div className="p-6 md:p-10 space-y-8">
-            {/* Dados Pessoais */}
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom-8">
+        <div className="bg-black p-6 text-white text-center">
+          <h1 className="text-2xl font-bold">Contrato de Prestação de Serviços</h1>
+          <p className="text-gray-400 text-sm mt-1">Leia atentamente e assine ao final</p>
+        </div>
+
+        <div className="p-6 md:p-10 space-y-8">
+
+          {/* Campos dinâmicos do template (todos os outros) */}
+          {pending.length > 0 && (
             <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Seu CPF</label>
-                <input type="text" value={studentCpf} onChange={e => setStudentCpf(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:border-black transition-colors" placeholder="000.000.000-00" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Endereço Completo</label>
-                <input type="text" value={studentAddress} onChange={e => setStudentAddress(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:border-black transition-colors" placeholder="Rua, Número, Cidade - UF" />
-              </div>
-            </div>
+              {pending
+                .filter((f) => f?.owner === "student")
+                // evita duplicar se teu template também tiver cpf_aluno/endereco_aluno
+                .filter((f) => !["cpf_aluno", "endereco_aluno"].includes(f.key))
+                .map((field, idx) => (
+                  <div key={idx}>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                      {field.label}
+                    </label>
 
-            {/* Texto do Contrato */}
-            <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 h-64 overflow-y-auto text-sm text-gray-700 font-mono leading-relaxed whitespace-pre-wrap">
-              {contractDisplay}
+                    <input
+                      type={field.type === "date" ? "date" : "text"}
+                      value={studentFieldValues[field.key] || ""}
+                      onChange={(e) =>
+                        setStudentFieldValues((prev) => ({
+                          ...prev,
+                          [field.key]: e.target.value,
+                        }))
+                      }
+                      className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:border-black transition-colors"
+                      placeholder={`Digite ${field.label}...`}
+                    />
+                  </div>
+                ))}
             </div>
+          )}
 
-            {/* Assinatura */}
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-2">
-                <FileSignature className="w-4 h-4"/> Sua Assinatura (Desenhe abaixo)
-              </label>
-              <SignaturePad onSave={setSignatureData} onClear={() => setSignatureData(null)} />
-              <p className="text-[10px] text-gray-400 mt-2 text-right">Ao assinar, você concorda com os termos acima.</p>
-            </div>
-
-            {/* Botão Final */}
-            <button 
-              onClick={handleSignContract}
-              disabled={!signatureData || !studentCpf || !studentAddress}
-              className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${
-                (!signatureData || !studentCpf || !studentAddress) 
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                : 'bg-black text-white hover:bg-gray-800 hover:shadow-xl active:scale-95'
-              }`}
-            >
-              Assinar e Começar Treino
-            </button>
+          {/* Texto do Contrato (render HTML certo) */}
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 h-64 overflow-y-auto">
+            <div
+              className="prose prose-sm max-w-none text-gray-700"
+              dangerouslySetInnerHTML={{ __html: contractDisplay }}
+            />
           </div>
+
+          {/* Assinatura */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-2">
+              <FileSignature className="w-4 h-4" /> Sua Assinatura (Desenhe abaixo)
+            </label>
+
+            <SignaturePad onSave={setSignatureData} onClear={() => setSignatureData(null)} />
+            <p className="text-[10px] text-gray-400 mt-2 text-right">
+              Ao assinar, você concorda com os termos acima.
+            </p>
+          </div>
+
+          {/* Botão Final */}
+          <button
+            onClick={handleSignContract}
+            className="w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all bg-black text-white hover:bg-gray-800 hover:shadow-xl active:scale-95"
+          >
+            Assinar e acessar o Onboarding
+          </button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // RENDER DO FLUXO (EDITOR OU ALUNO)
   const renderStepContent = (step) => (
@@ -1268,11 +1502,54 @@ const OnboardingConsultoria = () => {
                 </div>
              </div>
           ) : (
-            <div className="bg-white min-h-[400px] rounded-2xl shadow-sm border border-gray-200 p-6 md:p-10 mb-8 relative">{renderStepContent(steps[currentStep])}</div>
+            isCompleted ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center animate-in fade-in zoom-in">
+                <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6 shadow-lg">
+                  <CheckCircle className="w-10 h-10" />
+                </div>
+                <h2 className="text-3xl font-bold text-gray-900 mb-2">{finalTitle}</h2>
+                <p className="text-gray-500 max-w-md mb-8">{finalMessage}</p>
+                <a 
+                  href={formatUrl(whatsappLink)} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="bg-green-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-transform active:scale-95 shadow-xl flex items-center gap-2"
+                >
+                  <Smartphone className="w-6 h-6" /> {finalButtonText}
+                </a>
+              </div>
+            ) : (
+              <div className="bg-white min-h-[400px] rounded-2xl shadow-sm border border-gray-200 p-6 md:p-10 mb-8 relative">
+                {renderStepContent(steps[currentStep])}
+              </div>
+            )
           )}
         </main>
         {viewState !== 'editor' && (
-          <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4"><div className="max-w-6xl mx-auto flex items-center justify-between gap-4"><button onClick={handlePrev} disabled={currentStep === 0} className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${currentStep === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}><ChevronLeft className="w-5 h-5"/><span className="hidden sm:inline">Anterior</span></button><button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl active:scale-95"><span>{currentStep === steps.length - 1 ? 'Concluir' : 'Próximo'}</span><ChevronRight className="w-5 h-5"/></button></div></footer>
+          <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
+            <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+              <button
+                onClick={handlePrev}
+                disabled={currentStep === 0}
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
+                  currentStep === 0
+                    ? 'text-gray-300 cursor-not-allowed'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <ChevronLeft className="w-5 h-5" />
+                <span className="hidden sm:inline">Anterior</span>
+              </button>
+
+              <button
+                onClick={handleNext}
+                className="flex items-center gap-2 px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl active:scale-95"
+              >
+                <span>{currentStep === steps.length - 1 ? 'Concluir' : 'Próximo'}</span>
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </footer>
         )}
       </div>
     );
