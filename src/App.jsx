@@ -1078,52 +1078,71 @@ const OnboardingConsultoria = () => {
 
   // --- ⬆️ FIM DO BLOCO ⬆️ ---
 
-  useEffect(() => {
-    if (!document.querySelector('script[src*="tailwindcss"]')) {
-      const script = document.createElement('script');
-      script.src = "https://cdn.tailwindcss.com";
-      script.async = true;
-      document.head.appendChild(script);
+// --- CORREÇÃO DEFINITIVA DO VISUAL (WAIT FOR TAILWIND) ---
+useEffect(() => {
+  const initSystem = async () => {
+    
+    // 1. BLOQUEIO DE VISUAL: Só avança se o Tailwind (estilos) estiver pronto
+    if (!window.tailwind) {
+      // Se o script não existe, cria ele
+      if (!document.querySelector('script[src*="tailwindcss"]')) {
+         const script = document.createElement('script');
+         script.src = "https://cdn.tailwindcss.com";
+         document.head.appendChild(script);
+      }
+
+      // Fica num loop infinito verificando se o Tailwind já carregou
+      await new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (window.tailwind) {
+            clearInterval(checkInterval); // O visual chegou! Pode parar de checar.
+            resolve();
+          }
+        }, 100); // Verifica a cada 100 milisegundos
+      });
+
+      // Pequena pausa extra de segurança (0.2s) para garantir a "pintura" da tela
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    const init = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const urlId = params.get('id');       
-      const urlToken = params.get('token'); 
-      const urlAdmin = params.get('admin');
+    // 2. LÓGICA DE NAVEGAÇÃO (Login, Dashboard, etc)
+    const params = new URLSearchParams(window.location.search);
+    const urlId = params.get('id');        
+    const urlToken = params.get('token'); 
+    const urlAdmin = params.get('admin');
 
-      if (urlToken) {
-        try {
-            if(!db) throw new Error("DB não iniciado");
-            const studentRef = doc(db, "students", urlToken);
-            const studentSnap = await getDoc(studentRef);
-            
-            if (studentSnap.exists()) {
-                setActiveStudent({ id: studentSnap.id, ...studentSnap.data() });
-                setViewState('student_login');
-            } else {
-                alert("Convite não encontrado ou expirado.");
-                setViewState('error');
-            }
-        } catch (e) { 
-            console.log(e); 
-            setTimeout(() => setViewState('loading'), 1000);
-        }
-      } else if (urlId) {
-        await loadPlan(urlId);
-        setActivePlanId(urlId);
-        setViewState('student_view_legacy');
-      } else if (urlAdmin === 'true') {
-        setIsAdminAccess(true);
-        await Promise.all([loadAllPlans(), loadAllStudents()]);
-        setViewState('dashboard');
-      } else {
-        setViewState('login');
+    if (urlToken) {
+      try {
+          if(!db) throw new Error("DB não iniciado");
+          const studentRef = doc(db, "students", urlToken);
+          const studentSnap = await getDoc(studentRef);
+          
+          if (studentSnap.exists()) {
+              setActiveStudent({ id: studentSnap.id, ...studentSnap.data() });
+              setViewState('student_login');
+          } else {
+              alert("Convite não encontrado ou expirado.");
+              setViewState('error');
+          }
+      } catch (e) { 
+          console.log(e); 
+          setTimeout(() => setViewState('loading'), 1000);
       }
-    };
+    } else if (urlId) {
+      await loadPlan(urlId);
+      setActivePlanId(urlId);
+      setViewState('student_view_legacy');
+    } else if (urlAdmin === 'true') {
+      setIsAdminAccess(true);
+      await Promise.all([loadAllPlans(), loadAllStudents()]);
+      setViewState('dashboard');
+    } else {
+      setViewState('login');
+    }
+  };
 
-    init();
-  }, [db]);
+  initSystem();
+}, [db]);
 
   // --- LOGINS ---
   const handleAdminLogin = async () => {
