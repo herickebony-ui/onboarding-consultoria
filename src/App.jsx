@@ -1357,34 +1357,73 @@ const OnboardingConsultoria = () => {
     setSteps(newSteps);
   };
 
-// --- UPLOAD DE CAPA (REAL PARA A NUVEM) ---
+// --- UPLOAD DE CAPA OTIMIZADO (COMPRESSÃO AUTOMÁTICA) ---
 const handleCoverUpload = async (index, e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  // Feedback simples para saber que está subindo
-  const oldLabel = e.target.parentElement.innerHTML;
-  e.target.parentElement.innerHTML = '<span class="text-xs font-bold text-blue-600 animate-pulse">Enviando p/ Nuvem...</span>';
+  const labelElement = e.target.parentElement.querySelector('span');
+  if (labelElement) {
+      labelElement.innerText = "Otimizando e Enviando...";
+      labelElement.className = "text-xs font-bold text-blue-600 animate-pulse";
+  }
 
   try {
     if (!storage) throw new Error("Storage não iniciado");
-    
-    // Cria uma referência única para a imagem
+
+    // 1. OTIMIZAÇÃO DE IMAGEM (Reduz de 5MB para ~150KB)
+    const compressedFile = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200; // Largura máxima (HD)
+          const scaleSize = MAX_WIDTH / img.width;
+          
+          // Se a imagem for menor que o limite, não mexe
+          if (scaleSize >= 1) {
+              resolve(file); 
+              return;
+          }
+
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          // Transforma em arquivo leve (JPEG 80% qualidade)
+          canvas.toBlob((blob) => {
+            resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          }, 'image/jpeg', 0.8);
+        };
+      };
+    });
+
+    // 2. ENVIO PARA NUVEM
     const storageRef = ref(storage, `capas/${Date.now()}-${file.name}`);
-    
-    // Faz o upload
-    const snapshot = await uploadBytes(storageRef, file);
-    
-    // Pega o link público da internet
+    const snapshot = await uploadBytes(storageRef, compressedFile);
     const url = await getDownloadURL(snapshot.ref);
     
-    // Salva o link real no fluxo
+    // 3. SALVAR LINK
     updateStep(index, 'coverImage', url);
     
+    // Feedback Visual
+    if (labelElement) {
+        labelElement.innerText = "Sucesso!";
+        setTimeout(() => { 
+           if(labelElement) labelElement.innerText = "Carregar Capa"; 
+           if(labelElement) labelElement.className = "text-xs text-gray-500 font-medium";
+        }, 2000);
+    }
+
   } catch (error) {
     console.error("Erro no upload:", error);
-    alert("Erro ao enviar imagem. Verifique se o 'Storage' está habilitado no seu painel do Firebase.");
-    // Restaura o texto em caso de erro (recarregar a página resolve visualmente)
+    alert("Erro ao enviar imagem: " + error.message);
+    if (labelElement) labelElement.innerText = "Erro no envio";
   }
 };
 
