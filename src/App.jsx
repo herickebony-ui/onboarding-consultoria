@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { 
   Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
   ExternalLink, Play, Settings, Plus, Trash2, Layout, Eye, MoveUp, MoveDown, 
@@ -23,9 +23,11 @@ const firebaseConfig = {
 
 // Inicialização Segura do Banco de Dados
 let db;
+let storage; // <--- ADICIONE ISSO
 try {
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   db = getFirestore(app);
+  storage = getStorage(app); // <--- ADICIONE ISSO
 } catch (error) {
   console.error("Erro ao conectar no Firebase:", error);
 }
@@ -1357,24 +1359,57 @@ useEffect(() => {
     setSteps(newSteps);
   };
 
-  const handleCoverUpload = (index, e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      updateStep(index, 'coverImage', url);
-    }
-  };
+// --- UPLOAD DE CAPA (REAL PARA A NUVEM) ---
+const handleCoverUpload = async (index, e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  const removeCover = (index) => updateStep(index, 'coverImage', null);
+  // Feedback simples para saber que está subindo
+  const oldLabel = e.target.parentElement.innerHTML;
+  e.target.parentElement.innerHTML = '<span class="text-xs font-bold text-blue-600 animate-pulse">Enviando p/ Nuvem...</span>';
 
-  const handleImageUpload = (index, e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      const currentImages = steps[index].images || [];
-      updateStep(index, 'images', [...currentImages, url]);
-    }
-  };
+  try {
+    if (!storage) throw new Error("Storage não iniciado");
+    
+    // Cria uma referência única para a imagem
+    const storageRef = ref(storage, `capas/${Date.now()}-${file.name}`);
+    
+    // Faz o upload
+    const snapshot = await uploadBytes(storageRef, file);
+    
+    // Pega o link público da internet
+    const url = await getDownloadURL(snapshot.ref);
+    
+    // Salva o link real no fluxo
+    updateStep(index, 'coverImage', url);
+    
+  } catch (error) {
+    console.error("Erro no upload:", error);
+    alert("Erro ao enviar imagem. Verifique se o 'Storage' está habilitado no seu painel do Firebase.");
+    // Restaura o texto em caso de erro (recarregar a página resolve visualmente)
+  }
+};
+
+// --- UPLOAD DE GALERIA (REAL PARA A NUVEM) ---
+const handleImageUpload = async (index, e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  try {
+    if (!storage) throw new Error("Storage não iniciado");
+    
+    const storageRef = ref(storage, `galeria/${Date.now()}-${file.name}`);
+    const snapshot = await uploadBytes(storageRef, file);
+    const url = await getDownloadURL(snapshot.ref);
+    
+    const currentImages = steps[index].images || [];
+    updateStep(index, 'images', [...currentImages, url]);
+    
+  } catch (error) {
+    console.error("Erro no upload:", error);
+    alert("Erro ao enviar imagem para a galeria.");
+  }
+};
 
   const removeImage = (stepIndex, imgIndex) => {
     const currentImages = steps[stepIndex].images || [];
