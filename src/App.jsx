@@ -1343,7 +1343,13 @@ useEffect(() => {
     newSteps[index] = { ...newSteps[index], [field]: value };
     setSteps(newSteps);
   };
-
+  const removeCover = (index) => {
+    const newSteps = [...steps];
+    // Remove a imagem e reseta a posição para o meio
+    newSteps[index] = { ...newSteps[index], coverImage: null, coverPosition: 50 };
+    setSteps(newSteps);
+  };
+  
   const moveStep = (index, direction) => {
     if (direction === 'up' && index > 0) {
       const newSteps = [...steps];
@@ -1817,8 +1823,13 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                               style={{ objectPosition: `center ${step.coverPosition || 50}%` }}
                             />
                             {/* BOTÃO DE EXCLUIR */}
-                            <button 
-                              onClick={() => removeCover(index)} 
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();  // Previne comportamentos estranhos
+                                e.stopPropagation(); // Garante que o clique fique SÓ no botão
+                                removeCover(index);
+                              }}
                               className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full shadow-lg hover:bg-red-700 transition-colors z-10"
                               title="Remover Capa"
                             >
