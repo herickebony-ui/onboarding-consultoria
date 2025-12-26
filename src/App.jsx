@@ -1741,15 +1741,22 @@ const renderStepContent = (step) => (
     )}
     <h2 className="text-2xl font-bold text-gray-900">{step.title}</h2>
     <div className="text-lg text-gray-600 prose prose-gray max-w-none prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline" dangerouslySetInnerHTML={{ __html: step.content }} />
+    
+    {/* --- AQUI ESTÁ A MUDANÇA DA GALERIA --- */}
     {step.images && step.images.length > 0 && (
-      <div className={`grid gap-4 my-6 ${step.images.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}>
+      // Mudança 1: Força 2 colunas no mobile, 3 no tablet, 4 no PC
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 my-8">
         {step.images.map((img, idx) => img && (
-          <div key={idx} className="bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-center overflow-hidden h-72">
-              <img src={img} alt="" className="w-full h-full object-contain" />
+          // Mudança 2: Altura h-64 (mais compacta) e "group" para o hover
+          <div key={idx} className="relative group bg-gray-50 rounded-2xl border border-gray-200 flex items-center justify-center overflow-hidden h-64 shadow-sm hover:shadow-md transition-all">
+              {/* Mudança 3: Efeito de zoom suave no hover */}
+              <img src={img} alt="" className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105" />
           </div>
         ))}
       </div>
     )}
+    {/* --- FIM DA MUDANÇA --- */}
+
     {(step.type === 'text' || step.type === 'welcome') && step.link && (
       <a href={formatUrl(step.link)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:underline font-medium mt-4">{step.buttonText || "Acessar Link"} <ExternalLink className="w-4 h-4"/></a>
     )}
