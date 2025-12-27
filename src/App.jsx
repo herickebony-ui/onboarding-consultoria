@@ -1536,15 +1536,32 @@ const OnboardingConsultoria = () => {
   };
   
   const moveStep = (index, direction) => {
+    let newIndex = index; // Variável para saber para onde ele foi
+
     if (direction === 'up' && index > 0) {
       const newSteps = [...steps];
       [newSteps[index], newSteps[index - 1]] = [newSteps[index - 1], newSteps[index]];
       setSteps(newSteps);
+      newIndex = index - 1; // Foi para cima
     } else if (direction === 'down' && index < steps.length - 1) {
       const newSteps = [...steps];
       [newSteps[index], newSteps[index + 1]] = [newSteps[index + 1], newSteps[index]];
       setSteps(newSteps);
+      newIndex = index + 1; // Foi para baixo
     }
+
+    // --- LÓGICA DO PULO IMEDIATO ---
+    // O setTimeout espera o React redesenhar a tela (50ms) antes de pular
+    setTimeout(() => {
+      const element = document.getElementById(`step-${newIndex}`);
+      if (element) {
+        // Calcula a posição do elemento menos 100px (para não ficar atrás do menu fixo)
+        const y = element.getBoundingClientRect().top + window.scrollY - 100;
+        
+        // Pula instantaneamente (behavior: 'auto')
+        window.scrollTo({ top: y, behavior: 'auto' });
+      }
+    }, 50);
   };
 
   const removeStep = (index) => {
