@@ -1929,9 +1929,9 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                 <div
                 id={`step-${index}`}               
                 key={step.id} 
-                className="group bg-gray-50 rounded-xl border border-gray-300 shadow-md mb-8 overflow-hidden transition-all hover:shadow-lg">            
+                className="group bg-gray-50 rounded-xl border border-gray-300 shadow-md mb-8 overflow-visible transition-all hover:shadow-lg">            
                   {/* Cabeçalho da Etapa */}
-                  <div className="bg-[#850000] p-4 border-b border-[#850000]/30 flex items-center justify-between">
+                  <div className="bg-[#850000] p-4 border-b border-[#850000]/30 flex items-center justify-between sticky top-16 z-40 shadow-md">
                     <div className="flex items-center gap-3">
                       {/* O Número (Agora com fundo branco e texto vinho para inverter) */}
                       <span className="w-8 h-8 flex items-center justify-center bg-white text-rose-900 rounded-lg text-sm font-bold shadow-sm">
