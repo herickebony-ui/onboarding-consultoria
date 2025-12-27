@@ -1985,7 +1985,7 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
         )}
 {/* ÍCONE ÍNDICE - FIXO FORA DO CONTAINER (posição do print 2) */}
 {viewState !== 'editor' && (
-  <div className="fixed left-4 top-[80px] z-50">
+  <div className="fixed left-4 top-[75px] z-50">
     <button
       onClick={() => setIsIndexOpen((v) => !v)}
       className="w-11 h-11 flex items-center justify-center rounded-xl border border-gray-200 bg-white hover:bg-gray-50 shadow-md"
