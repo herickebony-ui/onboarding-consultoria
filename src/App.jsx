@@ -2096,7 +2096,7 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
   <div className="fixed left-4 top-[75px] z-50">
     <button
       onClick={() => setIsIndexOpen((v) => !v)}
-      className="w-11 h-11 flex items-center justify-center rounded-xl border border-gray-200 bg-white/55 backdrop-blur-md hover:bg-white/90 shadow-md"
+      className="w-11 h-11 flex items-center justify-center rounded-xl border border-gray-300 bg-gray-100/90 backdrop-blur-md hover:bg-white/90 shadow-md"
       title="Abrir índice"
       aria-label="Abrir índice"
     >
