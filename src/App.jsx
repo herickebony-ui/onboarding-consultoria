@@ -437,7 +437,7 @@ const Dashboard = ({
   plans, 
   onDeletePlan, 
   onDuplicatePlan, 
-  onUpdatePlanMeta, 
+  onUpdatePlanMeta, onUpdatePlanColor,
   students, 
   onCreateStudent, 
   onDeleteStudent 
@@ -765,21 +765,57 @@ const Dashboard = ({
                 )}
               </div>
               {plans.map((plan) => (
-                <div key={plan.id} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow relative group flex flex-col justify-between min-h-[200px]">
+                <div 
+                  key={plan.id} 
+                  className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all relative group flex flex-col justify-between min-h-[200px]"
+                  style={{ 
+                    // AQUI: A borda esquerda pega a cor escolhida (ou cinza se não tiver)
+                    borderLeft: `6px solid ${plan.color || '#e5e7eb'}`,
+                    borderTop: '1px solid #f3f4f6',
+                    borderRight: '1px solid #f3f4f6',
+                    borderBottom: '1px solid #f3f4f6'
+                  }}
+                >
                   <div>
-                    <div className="flex justify-between items-start mb-2">
+                    <div className="flex justify-between items-start mb-2 pl-2">
                       <h3 className="font-bold text-lg text-gray-900 leading-tight">{plan.name || plan.id}</h3>
-                      <button onClick={() => {setEditingPlan(plan); setEditName(plan.name || plan.id)}} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit className="w-4 h-4" /></button>
+                      
+                      <div className="flex items-center gap-1">
+                        {/* SELETOR DE COR */}
+                        <div className="relative group/color">
+                           <div 
+                             className="w-6 h-6 rounded-full border border-gray-200 cursor-pointer shadow-sm"
+                             style={{ backgroundColor: plan.color || '#ffffff' }}
+                             title="Mudar cor da etiqueta"
+                           />
+                           <input 
+                              type="color" 
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                              onChange={(e) => onUpdatePlanColor(plan.id, e.target.value)}
+                              value={plan.color || "#ffffff"}
+                           />
+                        </div>
+
+                        {/* Botão de Editar Nome */}
+                        <button onClick={() => {setEditingPlan(plan); setEditName(plan.name || plan.id)}} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-400 font-mono mb-6 bg-gray-50 inline-block px-2 py-1 rounded">ID: {plan.id}</p>
+                    
+                    <p className="text-xs text-gray-400 font-mono mb-6 bg-gray-50 inline-block px-2 py-1 rounded ml-2">ID: {plan.id}</p>
                   </div>
-                  <div className="space-y-2">
-                    <button onClick={() => onSelectPlan(plan.id)} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center justify-center gap-2"><Settings className="w-4 h-4"/> Editar Fluxo</button>
+
+                  <div className="space-y-2 pl-2">
+                    <button onClick={() => onSelectPlan(plan.id)} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center justify-center gap-2">
+                      <Settings className="w-4 h-4"/> Editar Fluxo
+                    </button>
                     <div className="flex gap-2">
-                      <button onClick={() => copyLink(plan.id)} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2" title="Link Direto (Antigo)"><LinkIcon className="w-4 h-4"/> Link</button>
+                      <button onClick={() => copyLink(plan.id)} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2" title="Link Direto"><LinkIcon className="w-4 h-4"/> Link</button>
                       <button onClick={() => {setDuplicatingPlan(plan); setDuplicateName(`${plan.name} (Cópia)`)}} className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2"><Copy className="w-4 h-4"/> Duplicar</button>
                     </div>
                   </div>
+                  
                   <button onClick={() => {if(confirm('Tem certeza?')) onDeletePlan(plan.id)}} className="absolute -top-2 -right-2 p-2 bg-white border border-gray-200 shadow-sm rounded-full text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
@@ -1200,7 +1236,14 @@ const OnboardingConsultoria = () => {
       } catch (e) { alert("Erro ao atualizar nome."); }
     }
   };
-
+  const handleUpdatePlanColor = async (id, newColor) => {
+    if(!db) return;
+    try {
+      await updateDoc(doc(db, "onboarding", id), { color: newColor });
+      // Atualiza a lista localmente para ver a cor na hora
+      setAvailablePlans(prev => prev.map(p => p.id === id ? { ...p, color: newColor } : p));
+    } catch (e) { console.error("Erro ao salvar cor", e); }
+  };
   // 5. Função de EDITAR (Abrir o editor)
   const handleEditPlan = async (id) => {
     setActivePlanId(id);
@@ -1469,12 +1512,23 @@ const OnboardingConsultoria = () => {
     if (!db || !activePlanId) return alert("Erro de configuração.");
     setIsSaving(true);
     try {
-      await setDoc(doc(db, "onboarding", activePlanId), { 
-        name: coachName, 
-        coachName, whatsappLink, finalTitle, finalMessage, finalButtonText, steps 
+      // CORREÇÃO: Usamos updateDoc para atualizar apenas o conteúdo interno.
+      // Removemos a propriedade "name" daqui para não sobrescrever o título do Dashboard.
+      await updateDoc(doc(db, "onboarding", activePlanId), { 
+        coachName, 
+        whatsappLink, 
+        finalTitle, 
+        finalMessage, 
+        finalButtonText, 
+        steps 
       });
       alert("✅ Fluxo salvo com sucesso!");
-    } catch (error) { alert("Erro ao salvar."); console.error(error); } finally { setIsSaving(false); }
+    } catch (error) { 
+      alert("Erro ao salvar."); 
+      console.error(error); 
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   // --- FUNÇÕES DE NAVEGAÇÃO E EDITOR ---
@@ -1755,12 +1809,14 @@ const handleImageUpload = async (index, e) => {
     return (
       <Dashboard 
         plans={availablePlans} 
-        // Aqui conectamos as funções corretamente:
-        onSelectPlan={handleEditPlan}           // Usa a função de editar que acabamos de criar
-        onCreatePlan={handleCreatePlan}         // Usa a função de criar restaurada
-        onDeletePlan={handleDeletePlan}         // Função original de deletar
-        onDuplicatePlan={handleDuplicatePlan}   // Função original de duplicar
-        onUpdatePlanMeta={handleUpdatePlanMetadata} // Função original de atualizar nome
+        onSelectPlan={handleEditPlan}            
+        onCreatePlan={handleCreatePlan}         
+        onDeletePlan={handleDeletePlan}         
+        onDuplicatePlan={handleDuplicatePlan}   
+        onUpdatePlanMeta={handleUpdatePlanMetadata} 
+        
+        // ADICIONE ESTA LINHA AQUI:
+        onUpdatePlanColor={handleUpdatePlanColor} 
         
         students={students}
         onCreateStudent={onCreateStudent}
