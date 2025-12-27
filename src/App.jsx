@@ -2234,7 +2234,7 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
 )}
 
 {/* CONTEÚDO PRINCIPAL */}
-<main className={`max-w-6xl mx-auto px-4 py-8 ${viewState === 'editor' ? 'max-w-4xl' : ''}`}>
+<main className={`max-w-6xl mx-auto px-4 py-8 transition-all ${viewState === 'editor' ? 'max-w-4xl' : 'flex flex-col justify-center min-h-[calc(100vh-160px)]'}`}>
               {viewState === 'editor' ? (
                 <div className="space-y-8"> {/* Container Principal do Editor */}
                   
