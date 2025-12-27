@@ -69,7 +69,7 @@ const buildMapsUrl = (value) => {
   // Se for texto/endereço, cria busca do Google Maps
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(txt)}`;
 };
-   // ✅ NOVO COMPONENTE GLOBAL: Player de Vídeo Inteligente
+// ✅ NOVO COMPONENTE GLOBAL: Player de Vídeo Inteligente (Corrigido com playsinline)
 const VideoPlayerGlobal = ({ url }) => {
   if (!url) return null;
   const cleanUrl = url.trim();
@@ -80,9 +80,12 @@ const VideoPlayerGlobal = ({ url }) => {
     return (
       <iframe
         className="w-full h-full"
-        src={`https://www.youtube.com/embed/${ytMatch[1]}?rel=0`}
+        // ADICIONADO: playsinline=1 força o vídeo a ficar na página
+        src={`https://www.youtube.com/embed/${ytMatch[1]}?rel=0&playsinline=1`}
         title="YouTube video"
         frameBorder="0"
+        // ADICIONADO: Atributo playsInline para compatibilidade mobile
+        playsInline
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
       />
@@ -107,7 +110,7 @@ const VideoPlayerGlobal = ({ url }) => {
   // 3. Vídeo Direto (.mp4, .webm, etc)
   if (cleanUrl.match(/\.(mp4|webm|ogg)$/i)) {
     return (
-      <video className="w-full h-full" controls>
+      <video className="w-full h-full" controls playsInline>
         <source src={cleanUrl} />
         Seu navegador não suporta este vídeo.
       </video>
@@ -122,7 +125,7 @@ const VideoPlayerGlobal = ({ url }) => {
       </a>
     </div>
   );
-};     
+};
     const wrapHtmlForPdf = (innerHtml) => `
     <style>
       @page { size: A4; margin: 0; }
@@ -2108,6 +2111,18 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
 
           </header>
         )}
+{/* --- BOTÃO EXCLUSIVO DO MODO TESTE (PARA VOLTAR AO EDITOR) --- */}
+{viewState === 'student_view_legacy' && (
+  <div className="fixed bottom-24 right-4 z-[9999] animate-in fade-in slide-in-from-right">
+    <button
+      onClick={() => setViewState('editor')}
+      className="flex items-center gap-2 px-5 py-3 bg-red-600 text-white rounded-full font-bold shadow-2xl hover:bg-red-700 hover:scale-105 transition-all border-2 border-white"
+    >
+      <Edit className="w-4 h-4" />
+      Sair do Teste
+    </button>
+  </div>
+)}
 {/* ÍCONE ÍNDICE - AJUSTADO (LINHAS IGUAIS + POSIÇÃO CERTA) */}
 {viewState !== 'editor' && (
   // Container invisível que alinha com o conteúdo do site
