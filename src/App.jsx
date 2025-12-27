@@ -323,104 +323,91 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
   );
 };
 
-// --- COMPONENTE DE ASSINATURA V3 (MOBILE PRECISION FIX) ---
+// --- COMPONENTE DE ASSINATURA V4 (POINTER EVENTS - ALTA PRECISÃO) ---
 const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
-  // Função para pegar a posição EXATA do toque/mouse relativa ao canvas
-  const getEventPos = (canvas, e) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-
-    // Verifica se é toque ou mouse
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
-    };
-  };
-
+  // Configuração inicial do Canvas (Alta Resolução)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Configuração de Alta Resolução (Retina)
-    const ratio = Math.max(window.devicePixelRatio || 1, 1);
-    canvas.width = canvas.offsetWidth * ratio;
-    canvas.height = canvas.offsetHeight * ratio;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.scale(ratio, ratio);
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#000000'; // Preto absoluto
+    const resizeCanvas = () => {
+      const parent = canvas.parentElement;
+      if (parent) {
+        // Define a resolução interna baseada no pixel ratio (Retina screens)
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        canvas.width = parent.offsetWidth * ratio;
+        canvas.height = 250 * ratio; // Altura fixa interna
+        
+        // Define o tamanho de exibição CSS
+        canvas.style.width = `${parent.offsetWidth}px`;
+        canvas.style.height = '250px';
 
-    // --- FUNÇÕES DE DESENHO (NATIVAS PARA PERFORMANCE) ---
-    // Usamos addEventListener nativo para poder usar { passive: false } e travar o scroll 100%
-    
-    const start = (e) => {
-      e.preventDefault(); // Impede scroll
-      setIsDrawing(true);
-      const { x, y } = getEventPos(canvas, e);
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-    };
-
-    const move = (e) => {
-      e.preventDefault(); // Impede scroll (CRUCIAL NO MOBILE)
-      if (!isDrawing && e.type !== 'touchmove') return; 
-      
-      // No touchmove, não temos "isDrawing" confiável sempre, então validamos se há toques
-      if (e.type === 'touchmove' && e.touches.length === 0) return;
-
-      // Se for mouse e não estiver clicado, para
-      if (e.type === 'mousemove' && e.buttons !== 1) {
-          setIsDrawing(false);
-          return;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(ratio, ratio);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 3; 
+        ctx.strokeStyle = '#000';
       }
-
-      const { x, y } = getEventPos(canvas, e);
-      ctx.lineTo(x, y);
-      ctx.stroke();
     };
 
-    const end = (e) => {
-      e.preventDefault();
-      setIsDrawing(false);
-      ctx.closePath();
-      if (onSave) onSave(canvas.toDataURL());
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    return () => window.removeEventListener('resize', resizeCanvas);
+  }, []);
+
+  // Captura a coordenada exata relativa ao elemento, corrigindo scroll e zoom
+  const getPoint = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    
+    // PointerEvent retorna clientX/Y. Subtraímos o rect para pegar o offset local.
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
     };
+  };
 
-    // Adiciona ouvintes nativos (Mouse e Touch)
-    canvas.addEventListener('mousedown', start);
-    canvas.addEventListener('mousemove', move);
-    canvas.addEventListener('mouseup', end);
-    canvas.addEventListener('mouseleave', end);
+  const handlePointerDown = (e) => {
+    e.preventDefault(); // Impede scroll da tela ao tocar
+    setIsDrawing(true);
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const { x, y } = getPoint(e);
+    
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    canvas.setPointerCapture(e.pointerId); // "Gruda" o evento ao canvas
+  };
 
-    canvas.addEventListener('touchstart', start, { passive: false });
-    canvas.addEventListener('touchmove', move, { passive: false });
-    canvas.addEventListener('touchend', end);
+  const handlePointerMove = (e) => {
+    e.preventDefault(); 
+    if (!isDrawing) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const { x, y } = getPoint(e);
+    
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
 
-    // Limpeza ao desmontar
-    return () => {
-      canvas.removeEventListener('mousedown', start);
-      canvas.removeEventListener('mousemove', move);
-      canvas.removeEventListener('mouseup', end);
-      canvas.removeEventListener('mouseleave', end);
-      canvas.removeEventListener('touchstart', start);
-      canvas.removeEventListener('touchmove', move);
-      canvas.removeEventListener('touchend', end);
-    };
-  }, [onSave]); // Recria apenas se onSave mudar
+  const handlePointerUp = (e) => {
+    e.preventDefault();
+    setIsDrawing(false);
+    const canvas = canvasRef.current;
+    canvas.releasePointerCapture(e.pointerId);
+    
+    if (onSave) onSave(canvas.toDataURL());
+  };
 
   const clear = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    // Limpa usando as coordenadas reais (internas)
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (onClear) onClear();
   };
@@ -429,17 +416,21 @@ const SignaturePad = ({ onSave, onClear }) => {
     <div className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner select-none touch-none">
       <canvas
         ref={canvasRef}
-        style={{ 
-            width: '100%', 
-            height: '250px',
-            touchAction: 'none', // Trava CSS extra
-            display: 'block'
-        }}
+        // Usamos Pointer Events (funciona para Mouse, Touch e Caneta)
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp} // Se o dedo sair da tela
+        style={{ touchAction: 'none', display: 'block', width: '100%', height: '250px' }}
       />
       <div className="bg-gray-50 p-2 border-t border-gray-200 flex justify-between items-center px-4">
-        <span className="text-[10px] text-gray-400">Assine com o dedo no espaço acima</span>
-        <button onClick={clear} className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1.5 rounded transition-colors uppercase tracking-wide">
-            Apagar e Refazer
+        <span className="text-[10px] text-gray-400 uppercase font-bold">Assine no espaço acima</span>
+        <button 
+          onClick={clear} 
+          type="button"
+          className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1.5 rounded transition-colors uppercase tracking-wide"
+        >
+            Limpar
         </button>
       </div>
     </div>
@@ -762,16 +753,28 @@ const handleGenerateDraft = () => {
     return html;
   };
   // --- GERADOR DA PÁGINA DE LOG (CORRIGIDO E LIMPO) ---
+  // --- GERADOR DA PÁGINA DE LOG (CORRIGIDO: CPF + QUEBRA DE PÁGINA) ---
   const buildAuditPageHtml = (student) => {
     const sData = student.studentData || {};
+    
+    // CORREÇÃO DO CPF: Busca na raiz (cadastro) ou nos dados salvos (assinatura)
+    const rawCpf = student.cpf || sData.cpf || 'Não informado';
+    // Formata CPF se necessário (opcional, mas garante visual bonito)
+    const finalCpf = rawCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+
     const signDate = sData.signedAt ? new Date(sData.signedAt).toLocaleString('pt-BR') : 'Data n/d';
     const createdDate = student.createdAt ? new Date(student.createdAt).toLocaleString('pt-BR') : 'Data n/d';
     const ip = sData.ipAddress || "IP não registrado";
     const docId = student.id;
     const hashId =  docId.split('').reverse().join('') + "ab9"; 
 
+    // ATENÇÃO AO ESTILO ABAIXO:
+    // 'page-break-before: always' força nova página no PDF.
+    // 'margin-top: 50px' dá respiro para o cabeçalho não colar no topo.
     return `
-      <div class="page-break" style="padding-top: 40px; font-family: sans-serif; color: #333;">
+      <div style="page-break-before: always; clear: both; display: block; width: 100%;"></div>
+      
+      <div style="padding-top: 20px; font-family: sans-serif; color: #333;">
         
         <table style="width: 100%; border-bottom: 2px solid #000; margin-bottom: 30px;">
             <tr>
@@ -797,7 +800,7 @@ const handleGenerateDraft = () => {
                       : '<div style="height: 60px;"></div>'}
                     <div style="border-top: 1px solid #000; padding-top: 5px; margin: 0 20px;">
                         <div style="font-weight: bold; font-size: 12px;">${student.name}</div>
-                        <div style="font-size: 10px; color: #555;">CPF: ${sData.cpf || 'Não informado'}</div>
+                        <div style="font-size: 10px; color: #555;">CPF: ${finalCpf}</div>
                         <div style="font-size: 10px; color: #555;">ALUNO (CONTRATANTE)</div>
                     </div>
                 </td>
