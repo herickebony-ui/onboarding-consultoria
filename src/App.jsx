@@ -6,7 +6,7 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { 
   Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
   ExternalLink, Play, Settings, Plus, Trash2, Layout, Eye, MoveUp, MoveDown, 
-  Image as ImageIcon, Upload, Bold, Italic, Underline, Link as LinkIcon, 
+  Image as ImageIcon, Upload, Bold, Italic, MapPin, Underline, Link as LinkIcon, 
   Monitor, Loader, ArrowLeft, Edit, Save, X, Lock, Users, Share2, Search, FileSignature, MoveVertical,
   Palette, Type 
 } from 'lucide-react';
@@ -55,6 +55,20 @@ const escapeHtml = (str) =>
       if (!url) return "#";
       return url.toString().startsWith("http") ? url : `https://${url}`;
     };
+// ✅ Helper: cria link do Google Maps a partir de um endereço ou link
+const buildMapsUrl = (value) => {
+  if (!value) return "#";
+
+  const txt = String(value).trim();
+
+  // Se já for um link, só garante o https
+  if (txt.startsWith("http://") || txt.startsWith("https://")) {
+    return txt;
+  }
+
+  // Se for texto/endereço, cria busca do Google Maps
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(txt)}`;
+};
         
     const wrapHtmlForPdf = (innerHtml) => `
     <style>
@@ -1332,6 +1346,54 @@ const OnboardingConsultoria = () => {
     newSteps[index] = { ...newSteps[index], [field]: value };
     setSteps(newSteps);
   };
+  const renderVideoPreview = (url) => {
+    const u = (url || "").trim();
+    if (!u) return null;
+  
+    // YouTube: https://www.youtube.com/watch?v=ID  ou  https://youtu.be/ID
+    const yt = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+    if (yt) {
+      const src = `https://www.youtube.com/embed/${yt[1]}`;
+      return (
+        <iframe
+          className="w-full h-full"
+          src={src}
+          title="Vídeo"
+          frameBorder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+      );
+    }
+  
+    // Vimeo: https://vimeo.com/123456789
+    const vimeo = u.match(/vimeo\.com\/(\d+)/);
+    if (vimeo) {
+      const src = `https://player.vimeo.com/video/${vimeo[1]}`;
+      return (
+        <iframe
+          className="w-full h-full"
+          src={src}
+          title="Vídeo"
+          frameBorder="0"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+        />
+      );
+    }
+  
+    // Link direto mp4/webm/ogg
+    if (u.match(/\.(mp4|webm|ogg)(\?.*)?$/i)) {
+      return <video className="w-full h-full" src={u} controls />;
+    }
+  
+    // fallback
+    return (
+      <a className="text-blue-600 underline" href={u} target="_blank" rel="noreferrer">
+        Abrir vídeo
+      </a>
+    );
+  };  
   const removeCover = (index) => {
     const newSteps = [...steps];
     // Remove a imagem e reseta a posição para o meio
@@ -1766,6 +1828,38 @@ const renderStepContent = (step) => (
         <a href={step.pdfData || formatUrl(step.link) || "#"} download={!!step.pdfData ? (step.pdfName || "documento.pdf") : undefined} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"><Download className="w-4 h-4" />{step.buttonText || "Baixar Arquivo"}</a>
       </div>
     )}
+    {step.type === 'location' && (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mt-6">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+          <MapPin className="w-6 h-6" />
+        </div>
+        <div>
+          <h3 className="font-bold text-gray-900">Localização</h3>
+          <p className="text-sm text-gray-500">
+            Toque no botão para abrir no Google Maps.
+          </p>
+        </div>
+      </div>
+
+      {step.location ? (
+        <a
+          href={buildMapsUrl(step.location)}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold"
+        >
+          {step.buttonText || "Abrir no Google Maps"}
+          <ExternalLink className="w-4 h-4" />
+        </a>
+      ) : (
+        <div className="text-sm text-red-600 font-bold">
+          Localização não configurada nesta etapa.
+        </div>
+      )}
+    </div>
+  )}
+
     {step.type === 'app' && (
       <div className="mt-8"><h3 className="font-bold text-gray-900 mb-4 text-center">Escolha sua plataforma:</h3><div className="flex flex-col gap-3 max-w-sm mx-auto">
         {step.iosLink && <a href={formatUrl(step.iosLink)} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-black text-white rounded-xl font-medium"><Smartphone className="w-5 h-5"/>App Store (iPhone)</a>}
@@ -2031,6 +2125,7 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                           <option value="pdf">PDF</option>
                           <option value="video">Vídeo</option>
                           <option value="app">App</option>
+                          <option value="location">Localização</option>
                         </select>
                       </div>
                     </div>
@@ -2039,6 +2134,24 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                     <RichTextEditor isA4={false} value={step.content} onChange={(newContent) => updateStep(index, 'content', newContent)}/>                        
                     
                     {/* Galeria de Fotos */}
+                    {step.type === "video" && (
+                      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mt-4">
+                        <label className="text-xs font-bold uppercase mb-1 block">Link do Vídeo</label>
+                        <input
+                          type="text"
+                          value={step.videoUrl || ""}
+                          onChange={(e) => updateStep(index, "videoUrl", e.target.value)}
+                          className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"
+                          placeholder='Ex: https://youtu.be/XXXX ou link .mp4'
+                        />
+
+                        {!!(step.videoUrl || "").trim() && (
+                          <div className="mt-3 aspect-video w-full overflow-hidden rounded-lg border border-gray-200">
+                            {renderVideoPreview(step.videoUrl)}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                       <label className="block text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><ImageIcon className="w-4 h-4" /> Galeria (Fotos Extras)</label>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -2073,12 +2186,60 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                         <div className="md:col-span-2"><label className="text-xs font-bold uppercase mb-1">Texto Botão</label><input type="text" value={step.buttonText} onChange={(e) => updateStep(index, 'buttonText', e.target.value)} className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"/></div>
                       </div>
                     )}
-                    {(step.type !== 'app' && step.type !== 'pdf') && (
+                    {/* Inputs do tipo: Localização */}
+                    {step.type === 'location' && (
+                      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-2">
+                          <label className="text-xs font-bold uppercase mb-1">Endereço ou Link do Google Maps</label>
+                          <input
+                            type="text"
+                            value={step.location || ""}
+                            onChange={(e) => updateStep(index, 'location', e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"
+                            placeholder='Ex: "Av. Cinquentenário, 1000, Itabuna - BA" ou cole um link do Maps'
+                          />
+                          <p className="text-[10px] text-gray-400 mt-1">
+                            Dica: pode ser endereço em texto OU um link completo do Google Maps.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold uppercase mb-1">Texto do Botão</label>
+                          <input
+                            type="text"
+                            value={step.buttonText || ""}
+                            onChange={(e) => updateStep(index, 'buttonText', e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"
+                            placeholder="Ex: Abrir no Google Maps"
+                          />
+                        </div>
+                      </div>  
+                    )}
+                    {(step.type === 'text' || step.type === 'boas-vindas') && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-                        <div><label className="text-xs font-bold uppercase mb-1">Link Extra</label><input type="text" value={step.link} onChange={(e) => updateStep(index, 'link', e.target.value)} className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"/></div>
-                        <div><label className="text-xs font-bold uppercase mb-1">Texto Botão</label><input type="text" value={step.buttonText} onChange={(e) => updateStep(index, 'buttonText', e.target.value)} className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"/></div>
+                        <div>
+                          <label className="text-xs font-bold uppercase mb-1">Link Extra</label>
+                          <input
+                            type="text"
+                            value={step.linkExtra || ""}
+                            onChange={(e) => updateStep(index, "linkExtra", e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"
+                            placeholder='Ex: "https://..."'
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-bold uppercase mb-1">Texto Botão</label>
+                          <input
+                            type="text"
+                            value={step.buttonText || ""}
+                            onChange={(e) => updateStep(index, "buttonText", e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-md text-sm outline-none"
+                            placeholder='Ex: "Acessar"'
+                          />
+                        </div>
                       </div>
                     )}
+
                   </div>
                 </div>
               ))}
