@@ -231,8 +231,8 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
           </div>
           <div className="h-4 w-px bg-gray-200"></div>
           <select onChange={changeSize} className="text-xs bg-transparent outline-none cursor-pointer" title="Tamanho da Fonte">
-             <option value="2">Pequeno</option>
-             <option value="3" selected>Normal</option>
+            <option value="2">Pequeno</option>
+            <option value="3">Normal</option>
              <option value="4">Médio</option>
              <option value="5">Grande</option>
              <option value="7">Gigante</option>
@@ -1918,7 +1918,7 @@ const renderStepContent = (step) => (
       </div></div>
     )}
     {step.type === 'video' && (
-      <><div className="relative bg-gray-900 aspect-video rounded-xl overflow-hidden flex items-center justify-center group cursor-pointer shadow-lg mt-6"><div className="absolute inset-0 bg-black/40"></div><Play className="w-16 h-16 text-white opacity-90 relative z-10" /><p className="absolute bottom-4 left-4 text-white font-medium text-sm z-10">Vídeo Explicativo</p>{step.step.videoUrl || step.link && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="absolute inset-0 z-20"></a>}</div>{step.buttonText && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="block w-full text-center py-3 bg-blue-600 text-white rounded-lg font-bold mt-4">{step.buttonText}</a>}</>
+      <><div className="relative bg-gray-900 aspect-video rounded-xl overflow-hidden flex items-center justify-center group cursor-pointer shadow-lg mt-6"><div className="absolute inset-0 bg-black/40"></div><Play className="w-16 h-16 text-white opacity-90 relative z-10" /><p className="absolute bottom-4 left-4 text-white font-medium text-sm z-10">Vídeo Explicativo</p>{(step.videoUrl || step.link) && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="absolute inset-0 z-20"></a>}</div>{step.buttonText && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="block w-full text-center py-3 bg-blue-600 text-white rounded-lg font-bold mt-4">{step.buttonText}</a>}</>
     )}
   </div>
 );
@@ -1943,71 +1943,62 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
         </header>
       )}
 
-{/* HEADER DO ALUNO (SE TIVER) */}
-{viewState !== 'editor' && (
-  <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200">
-    
-    {/* LINHA 1 */}
-    <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      
-      {/* ESQUERDA: ON + Textos */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-black rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-lg">
-          ON
-        </div>
+        {/* HEADER DO ALUNO (SE TIVER) */}
+        {viewState !== 'editor' && (
+          <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200">
+            
+            {/* LINHA 1 */}
+            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+              
+              {/* ESQUERDA: ON + Textos */}
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-black rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-lg">
+                  ON
+                </div>
 
-        <div className="leading-tight">
-          <h1 className="text-sm font-bold text-gray-900">Onboarding</h1>
-          <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
-        </div>
-      </div>
+                <div className="leading-tight">
+                  <h1 className="text-sm font-bold text-gray-900">Onboarding</h1>
+                  <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
+                </div>
+              </div>
 
-      {/* DIREITA: PROGRESSO + TEMPO ESTIMADO ABAIXO */}
-      <div className="flex flex-col items-end">
-        <span className="text-[10px] font-bold text-gray-500 uppercase">Progresso</span>
+              {/* DIREITA: PROGRESSO + TEMPO ESTIMADO ABAIXO */}
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-bold text-gray-500 uppercase">Progresso</span>
 
-        <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden mt-1">
-          <div
-            className="h-full bg-black transition-all duration-500 ease-out"
-            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
-          />
-        </div>
+                <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-black transition-all duration-500 ease-out"
+                    style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
+                  />
+                </div>
 
-        {currentStep === 0 && (
-          <span className="mt-1 text-[10px] text-gray-400 font-medium">
-            Tempo estimado: 3–5 min
-          </span>
+                {currentStep === 0 && (
+                  <span className="mt-1 text-[10px] text-gray-400 font-medium">
+                    Tempo estimado: 3–5 min
+                  </span>
+                )}
+              </div>
+            </div>
+
+          </header>
         )}
-      </div>
-
-    </div>
-
-    {/* LINHA 2 (ÍNDICE) - abaixo do ON, fora da coluna de textos */}
-    <div className="max-w-6xl mx-auto px-4 pb-3">
-      <div className="flex items-center gap-3">
-        
-        {/* Coluna do ON (mesma largura do quadrado ON) */}
-        <div className="w-10 flex justify-center">
-          <button
-            onClick={() => setIsIndexOpen(true)}
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-50 shadow-sm"
-            title="Abrir índice"
-            aria-label="Abrir índice"
-          >
-            <span className="flex flex-col gap-1">
-              <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
-              <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
-              <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
-            </span>
-          </button>
-        </div>
-
-        {/* “Coluna dos textos” vazia só pra manter alinhamento */}
-        <div className="flex-1" />
-      </div>
-    </div>
-
-  </header>
+{/* ÍCONE ÍNDICE - FIXO FORA DO CONTAINER (posição do print 2) */}
+{viewState !== 'editor' && (
+  <div className="fixed left-4 top-[72px] z-50">
+    <button
+      onClick={() => setIsIndexOpen((v) => !v)}
+      className="w-11 h-11 flex items-center justify-center rounded-xl border border-gray-200 bg-white hover:bg-gray-50 shadow-md"
+      title="Abrir índice"
+      aria-label="Abrir índice"
+    >
+      <span className="flex flex-col gap-1">
+        <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
+        <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
+        <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
+      </span>
+    </button>
+  </div>
 )}
 
 {/* --- MODAL ÍNDICE (ALUNO) --- */}
