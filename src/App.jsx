@@ -1943,50 +1943,73 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
         </header>
       )}
 
-      {/* HEADER DO ALUNO (SE TIVER) */}
-      {viewState !== 'editor' && (
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200">
-          <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-black rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-lg">ON</div>
-              <div>
-                <h1 className="text-sm font-bold text-gray-900 leading-tight">Onboarding</h1>
-                <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
-                {currentStep === 0 && (
-                  <p className="text-[10px] text-gray-400 font-medium">Tempo estimado: 3–5 min</p>
-                )}
-                {/* ÍNDICE (abaixo do Tempo estimado / abaixo do ON) */}
-                <button
-                  onClick={() => setIsIndexOpen(true)}
-                  className="mt-2 inline-flex items-center justify-center p-2 rounded-lg border border-gray-200 hover:bg-gray-100 w-fit"
-                  title="Abrir índice"
-                  aria-label="Abrir índice"
-                >
-                  <span className="flex flex-col gap-1">
-                    <span className="block w-10 h-1 bg-gray-800 rounded-full"></span>
-                    <span className="block w-10 h-1 bg-gray-800 rounded-full"></span>
-                    <span className="block w-10 h-1 bg-gray-800 rounded-full"></span>
-                  </span>
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
+{/* HEADER DO ALUNO (SE TIVER) */}
+{viewState !== 'editor' && (
+  <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200">
+    
+    {/* LINHA 1 */}
+    <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      
+      {/* ESQUERDA: ON + Textos */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-black rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-lg">
+          ON
+        </div>
 
-      {/* Progresso + Barra (sem números) */}
+        <div className="leading-tight">
+          <h1 className="text-sm font-bold text-gray-900">Onboarding</h1>
+          <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
+        </div>
+      </div>
+
+      {/* DIREITA: PROGRESSO + TEMPO ESTIMADO ABAIXO */}
       <div className="flex flex-col items-end">
         <span className="text-[10px] font-bold text-gray-500 uppercase">Progresso</span>
+
         <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden mt-1">
           <div
             className="h-full bg-black transition-all duration-500 ease-out"
             style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
           />
         </div>
+
+        {currentStep === 0 && (
+          <span className="mt-1 text-[10px] text-gray-400 font-medium">
+            Tempo estimado: 3–5 min
+          </span>
+        )}
+      </div>
+
+    </div>
+
+    {/* LINHA 2 (ÍNDICE) - abaixo do ON, fora da coluna de textos */}
+    <div className="max-w-6xl mx-auto px-4 pb-3">
+      <div className="flex items-center gap-3">
+        
+        {/* Coluna do ON (mesma largura do quadrado ON) */}
+        <div className="w-10 flex justify-center">
+          <button
+            onClick={() => setIsIndexOpen(true)}
+            className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-50 shadow-sm"
+            title="Abrir índice"
+            aria-label="Abrir índice"
+          >
+            <span className="flex flex-col gap-1">
+              <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
+              <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
+              <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
+            </span>
+          </button>
+        </div>
+
+        {/* “Coluna dos textos” vazia só pra manter alinhamento */}
+        <div className="flex-1" />
       </div>
     </div>
 
-          </div>
-        </header>
-      )}
+  </header>
+)}
+
 {/* --- MODAL ÍNDICE (ALUNO) --- */}
 {viewState !== 'editor' && isIndexOpen && (
   <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
@@ -2054,20 +2077,12 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
     </div>
   </div>
 )}
-{/* BADGES (só no aluno) */}
-{viewState !== 'editor' && !isCompleted && (
-  <div className="max-w-6xl mx-auto px-4 pt-4 space-y-2">
-    {currentStep === 0 && (
-      <div className="inline-flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-1 text-xs text-gray-700 shadow-sm">
-        <span className="font-bold">Tempo estimado:</span> 3–5 min
-      </div>
-    )}
-
-    {showOrderHint && (
-      <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-xl px-4 py-2 text-xs font-bold">
-        Recomendado seguir a ordem
-      </div>
-    )}
+{/* BADGE (só no aluno) */}
+{viewState !== 'editor' && !isCompleted && showOrderHint && (
+  <div className="max-w-6xl mx-auto px-4 pt-4">
+    <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-xl px-4 py-2 text-xs font-bold">
+      Recomendado seguir a ordem
+    </div>
   </div>
 )}
 
