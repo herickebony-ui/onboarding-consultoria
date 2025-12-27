@@ -126,37 +126,35 @@ const VideoPlayerGlobal = ({ url }) => {
     </div>
   );
 };
+    // ✅ ATUALIZADO: CSS ajustado para A4 Real
     const wrapHtmlForPdf = (innerHtml) => `
     <style>
-      @page { size: A4; margin: 0; }
+      @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
       
-      .pdf-root {
-        font-family: "Times New Roman", Times, serif !important;
-        font-size: 12pt !important;
-        line-height: 1.5 !important;
-        color: #000000 !important;
-        text-align: justify !important;
-        
-        /* Largura fixa em PX (794px = 210mm a 96dpi) para travar o layout */
-        width: 794px; 
-        min-height: 1123px; /* Altura mínima A4 */
-        padding: 25mm 30mm; /* Margens: Sup/Inf 2.5cm, Esq/Dir 3cm */
+      /* Configuração da Página para o motor do PDF */
+      .pdf-container {
+        width: 794px; /* Largura exata A4 em px (96dpi) */
+        min-height: 1123px;
+        padding: 40px 60px; /* Margens internas confortáveis */
         background: white;
-        box-sizing: border-box;
+        font-family: 'Times New Roman', serif; /* Fonte padrão de contrato */
+        font-size: 14px; /* Tamanho legível */
+        color: #000;
+        line-height: 1.5;
+        text-align: justify;
       }
-      
-      .pdf-root p, .pdf-root div, .pdf-root span {
-        color: #000 !important;
-        margin-bottom: 0.8em;
-      }
-      
+
+      /* Garante que imagens (assinatura) não estouram */
       img { max-width: 100%; height: auto; }
+      
+      /* Força quebra de página limpa se necessário */
+      .page-break { page-break-before: always; }
     </style>
-    
-    <div class="pdf-root">
+
+    <div class="pdf-container">
       ${innerHtml}
     </div>
-  `;
+    `;
 
 // --- EDITOR DE TEXTO DEFINITIVO (BARRA COMPLETA + ROLAGEM CORRIGIDA) ---
 const RichTextEditor = ({ value, onChange, isA4 = false }) => {
@@ -539,6 +537,13 @@ const Dashboard = ({
     alert("Link copiado: " + url);
   };
 
+  // --- FUNÇÃO QUE FALTAVA: COPIAR LINK DO ALUNO ---
+  const copyStudentLink = (studentId) => {
+    const url = `${window.location.origin}/?token=${studentId}`;
+    navigator.clipboard.writeText(url);
+    alert("Link de acesso do aluno copiado:\n" + url);
+  };
+
   const saveEdit = () => {
     if (!editName) return alert("Nome obrigatório");
     onUpdatePlanMeta(editingPlan.id, editingPlan.id, editName);
@@ -707,85 +712,85 @@ const handleGenerateDraft = () => {
     return html;
   };
 
+  // ✅ FUNÇÃO CORRIGIDA: Gera PDF nítido e sem páginas em branco
   const generateContractPDF = async (student) => {
     if (!student?.signature?.image) {
       alert("Este aluno ainda não assinou.");
       return;
     }
   
-    // Feedback visual
-    const loadingMsg = document.createElement('div');
-    loadingMsg.innerHTML = `
-      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);color:white;padding:20px 40px;border-radius:12px;z-index:99999;font-family:sans-serif;">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <div style="width:20px;height:20px;border:3px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
-          <span style="font-weight:bold;">Gerando PDF...</span>
-        </div>
-      </div>
-      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-    `;
-    document.body.appendChild(loadingMsg);
+    // 1. Feedback visual de carregamento
+    const loadingId = "pdf-loading-toast";
+    const existingLoading = document.getElementById(loadingId);
+    if (!existingLoading) {
+        const loadingMsg = document.createElement('div');
+        loadingMsg.id = loadingId;
+        loadingMsg.innerHTML = `
+          <div style="position:fixed;top:20px;right:20px;background:black;color:white;padding:15px 25px;border-radius:8px;z-index:99999;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.2);display:flex;align-items:center;gap:10px;">
+            <div style="width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+            <span style="font-weight:bold;font-size:14px;">Preparando Documento...</span>
+          </div>
+          <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+        `;
+        document.body.appendChild(loadingMsg);
+    }
   
     try {
-      const pdf = new jsPDF("p", "mm", "a4");
-      
-      // Container temporário - VISÍVEL mas atrás de tudo
+      // 2. Prepara o documento PDF
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "pt", // Usamos pontos para precisão tipográfica
+        format: "a4"
+      });
+  
+      // 3. Container TEMPORÁRIO (O Segredo: Fora da tela, mas visível)
+      // Se usar display:none ou z-index negativo, o PDF sai branco.
+      // A solução é jogar ele lá longe (left: -10000px).
       const container = document.createElement("div");
-      container.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        z-index: -9999;
-        width: 794px;
-        height: auto;
-        background: #ffffff;
-        color: #000000;
-        overflow: hidden;
-      `;
+      container.style.position = "absolute";
+      container.style.left = "-10000px";
+      container.style.top = "0";
+      container.style.width = "794px"; // Largura A4 Fixa
       
-      // Monta o HTML do contrato assinado
+      // Monta o HTML preenchido
       const signedHtml = buildSignedContractHtml(student);
       container.innerHTML = wrapHtmlForPdf(signedHtml);
       document.body.appendChild(container);
   
-      // Aguarda imagens carregarem (assinatura, logos, etc)
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // 4. Aguarda renderização das imagens (Assinatura)
+      // Damos um tempo para o navegador "pintar" o container fora da tela
+      await new Promise(resolve => setTimeout(resolve, 1000));
   
-      // Gera o PDF
-      await pdf.html(container.querySelector(".pdf-root"), {
+      // 5. Converte HTML para PDF (Vetorizado/Texto Selecionável)
+      await pdf.html(container.querySelector(".pdf-container"), {
         callback: (doc) => {
-          const fileName = `Contrato_${String(student.name || "Aluno").replace(/\s+/g, "_")}.pdf`;
+          const fileName = `Contrato_${String(student.name || "Aluno").replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
           doc.save(fileName);
           
-          // Limpa tudo
+          // Limpeza
           document.body.removeChild(container);
-          document.body.removeChild(loadingMsg);
+          const loadingEl = document.getElementById(loadingId);
+          if (loadingEl) document.body.removeChild(loadingEl);
         },
         x: 0,
         y: 0,
-        width: 210, // A4 em mm
-        windowWidth: 794, // A4 em pixels (96 DPI)
-        margin: [0, 0, 0, 0], // Margens controladas pelo CSS interno
-        html2canvas: { 
-          scale: 2, // Qualidade alta
-          useCORS: true, // Permite imagens externas
-          letterRendering: true, // Melhora texto
-          scrollY: 0,
-          scrollX: 0,
-          backgroundColor: "#ffffff",
-          logging: false // Remove logs no console
+        html2canvas: {
+          scale: 0.75, // Ajuste fino para converter PX (tela) para PT (pdf)
+          useCORS: true, // Permite carregar a imagem da assinatura
+          logging: false
         },
-        autoPaging: 'text' // Quebra de página automática
+        autoPaging: 'text', // Quebra de página inteligente (não corta texto ao meio)
+        margin: [20, 0, 20, 0], // Margens superior/inferior no PDF final
+        width: 595 // Largura útil do A4 em pontos (pt)
       });
   
     } catch (error) {
       console.error("❌ Erro ao gerar PDF:", error);
-      alert("Erro ao gerar o PDF. Verifique o console para detalhes.");
+      alert("Erro ao gerar o PDF. Tente novamente.");
       
-      // Limpa em caso de erro
-      const tempContainer = document.querySelector('div[style*="z-index: -9999"]');
-      if (tempContainer) document.body.removeChild(tempContainer);
-      if (document.body.contains(loadingMsg)) document.body.removeChild(loadingMsg);
+      // Remove loading em caso de erro
+      const loadingEl = document.getElementById(loadingId);
+      if (loadingEl) document.body.removeChild(loadingEl);
     }
   };
 
@@ -1547,110 +1552,133 @@ const OnboardingConsultoria = () => {
     }
   };
 
-  // Atualiza o login para levar à tela de contrato se necessário
-  // ⚠️ ATENÇÃO: Substitua sua função handleStudentLogin atual por esta:
-  const handleStudentLoginV2 = async () => {
-    const phoneClean = studentPhoneInput.replace(/\D/g, '');
-    const registeredPhone = activeStudent.phone.replace(/\D/g, '');
-    
-    if (phoneClean === registeredPhone) {
-        // SALVA O LOGIN NA SESSÃO
-        sessionStorage.setItem('ebony_student_phone', phoneClean);
+// Função atualizada para garantir o redirecionamento correto
+const handleStudentLoginV2 = async () => {
+  if (!activeStudent) {
+      alert("Erro: Dados do aluno não carregados. Recarregue a página.");
+      return;
+  }
 
-        if (activeStudent.status === 'signed') {
-            await loadPlan(activeStudent.planId);
-            setViewState('student_view_flow');
-        } else {
-            setViewState('contract_sign'); 
-        }
-    } else {
-        alert("Número de WhatsApp não confere com o cadastro deste convite.");
-    }
-  };
+  // Limpeza rigorosa dos números para comparação
+  const phoneInputClean = studentPhoneInput.replace(/\D/g, '');
+  const studentPhoneClean = activeStudent.phone.replace(/\D/g, '');
+  
+  // Comparação frouxa (verifica se o digitado CONTÉM no cadastro ou vice-versa para evitar erro de DDD 0)
+  if (phoneInputClean === studentPhoneClean || studentPhoneClean.endsWith(phoneInputClean)) {
+      
+      // 1. Salva na sessão para não pedir de novo se der F5
+      sessionStorage.setItem('ebony_student_phone', studentPhoneClean);
+
+      // 2. Direcionamento
+      if (activeStudent.status === 'signed') {
+          await loadPlan(activeStudent.planId);
+          setViewState('student_view_flow');
+      } else {
+          // AQUI É O PULO DO GATO: Manda para a tela de assinatura
+          setViewState('contract_sign'); 
+      }
+  } else {
+      alert(`Número incorreto. O número cadastrado termina em: ...${studentPhoneClean.slice(-4)}`);
+  }
+};
   // --- ⬆️ FIM DA LÓGICA DE ASSINATURA ⬆️ ---
 
   // --- ⬆️ FIM DO BLOCO ⬆️ ---
 
-  // --- INICIALIZAÇÃO CORRIGIDA E SIMPLIFICADA ---
-  useEffect(() => {
-    const initSystem = async () => {
-      
-      // 1. CARREGA O VISUAL (TAILWIND)
-      if (!window.tailwind) {
-        if (!document.querySelector('script[src*="tailwindcss"]')) {
-          const script = document.createElement('script');
-          script.src = "https://cdn.tailwindcss.com";
-          document.head.appendChild(script);
-        }
-        await new Promise(r => setTimeout(r, 300)); // Pequena pausa para garantir
+// --- INICIALIZAÇÃO CORRIGIDA E SIMPLIFICADA ---
+useEffect(() => {
+  const initSystem = async () => {
+    
+    // 1. Garante Tailwind
+    if (!window.tailwind) {
+      if (!document.querySelector('script[src*="tailwindcss"]')) {
+        const script = document.createElement('script');
+        script.src = "https://cdn.tailwindcss.com";
+        document.head.appendChild(script);
       }
+      await new Promise(r => setTimeout(r, 300));
+    }
 
-      // 2. SISTEMA DE ROTEAMENTO
-      const params = new URLSearchParams(window.location.search);
-      const urlId = params.get('id');        
-      const urlToken = params.get('token'); 
-      const urlAdmin = params.get('admin');
-      const urlRegister = params.get('register'); // Link público de cadastro
+    // 2. Leitura dos Parâmetros da URL
+    const params = new URLSearchParams(window.location.search);
+    const urlId = params.get('id');        
+    const urlToken = params.get('token'); // Link do Aluno
+    const urlAdmin = params.get('admin');
+    const urlRegister = params.get('register');
 
-      // CASO 0: PRÉ-CADASTRO PÚBLICO (NOVO)
-      if (urlRegister) {
-          setViewState('public_register');
-      
-      // CASO 1: LINK DE ALUNO (EXISTENTE)
-      } else if (urlToken) {        try {
-            const studentRef = doc(db, "students", urlToken);
-            const studentSnap = await getDoc(studentRef);
-            if (studentSnap.exists()) {
-                const sData = { id: studentSnap.id, ...studentSnap.data() };
-                setActiveStudent(sData);
-                const savedPhone = sessionStorage.getItem('ebony_student_phone');
-                const studentPhone = sData.phone.replace(/\D/g, '');
-                
-                if (savedPhone === studentPhone) {
-                    if (sData.status === 'signed') {
-                        await loadPlan(sData.planId);
-                        setViewState('student_view_flow');
-                    } else {
-                        setViewState('contract_sign');
-                    }
-                } else {
-                    setViewState('student_login');
-                }
-            } else {
-                alert("Convite não encontrado.");
-                setViewState('error');
-            }
-        } catch (e) { 
-            console.error(e); 
-            setViewState('login'); // Em caso de erro grave, joga pro login
-        }
+    // --- ROTEAMENTO INTELIGENTE ---
 
-      // CASO 2: LINK DIRETO (ANTIGO)
-      } else if (urlId) {
-        await loadPlan(urlId);
-        setActivePlanId(urlId);
-        setViewState('student_view_legacy');
+    // CENÁRIO A: Link Público de Pré-Cadastro
+    if (urlRegister) {
+        setViewState('public_register');
+        return;
+    }
 
-      // CASO 3: ADMIN / DASHBOARD
-      } else {
-        const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
-        if (urlAdmin === 'true' || hasSession) {
-          setIsAdminAccess(true);
-          try {
-            // Tenta carregar os dados
-            await Promise.all([loadAllPlans(), loadAllStudents()]);
-          } catch (error) {
-            console.error("Erro ao carregar dados iniciais:", error);
-          }
-          setViewState('dashboard'); // Abre o dashboard mesmo se der erro no load (para não travar tela branca)
+    // CENÁRIO B: Link Exclusivo do Aluno (Token) -> PRIORIDADE MÁXIMA
+    if (urlToken) {
+      setViewState('loading'); // Mostra loading enquanto busca
+      try {
+        const studentRef = doc(db, "students", urlToken);
+        const studentSnap = await getDoc(studentRef);
+
+        if (studentSnap.exists()) {
+           const sData = { id: studentSnap.id, ...studentSnap.data() };
+           setActiveStudent(sData); // Salva o aluno na memória
+
+           // Verifica se já está logado neste navegador (SessionStorage)
+           const savedPhone = sessionStorage.getItem('ebony_student_phone');
+           const studentPhone = sData.phone ? sData.phone.replace(/\D/g, '') : '';
+           
+           // Se o telefone salvo for igual ao do aluno carregado, entra direto
+           if (savedPhone === studentPhone) {
+              if (sData.status === 'signed') {
+                  // Se já assinou, carrega o conteúdo
+                  await loadPlan(sData.planId);
+                  setViewState('student_view_flow');
+              } else {
+                  // Se não assinou, vai para o contrato
+                  setViewState('contract_sign');
+              }
+           } else {
+              // Se não tiver logado (ou for outro aluno), manda pro Login
+              setViewState('student_login');
+           }
         } else {
-          setViewState('login');
+           alert("Link inválido ou convite não encontrado.");
+           setViewState('login'); // Volta pro login admin em caso de erro
         }
+      } catch (e) {
+         console.error("Erro ao buscar aluno:", e);
+         alert("Erro de conexão. Tente recarregar.");
       }
-    };
+      return; // Encerra aqui para não conflitar com outras rotas
+    }
 
-    initSystem();
-  }, []);
+    // CENÁRIO C: Link de Fluxo Direto (Legado/Testes)
+    if (urlId) {
+      await loadPlan(urlId);
+      setActivePlanId(urlId);
+      setViewState('student_view_legacy');
+      return;
+    }
+
+    // CENÁRIO D: Acesso Admin / Dashboard
+    const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
+    if (urlAdmin === 'true' || hasSession) {
+      setIsAdminAccess(true);
+      try {
+        await Promise.all([loadAllPlans(), loadAllStudents()]);
+      } catch (error) {
+        console.error("Erro dados iniciais:", error);
+      }
+      setViewState('dashboard');
+    } else {
+      setViewState('login');
+    }
+  };
+
+  initSystem();
+}, []);
 
   // --- LOGINS ---
   const handleAdminLogin = async () => {
@@ -2158,7 +2186,7 @@ const handleImageUpload = async (index, e) => {
   // --- AQUI ESTAVA O ERRO: O CÓDIGO "LIXO" FOI REMOVIDO DAQUI ---
 
   if (viewState === 'contract_sign') {
-    const baseHTML = activeStudent?.contractText || "<p>Contrato não encontrado.</p>";
+    const baseHTML = activeStudent?.contractText || "<div style='padding:40px; text-align:center; color:red; font-weight:bold;'>⚠️ ERRO: O texto do contrato não foi gerado. O treinador precisa salvar a minuta no Dashboard primeiro.</div>";
 
     // campos do modelo que são do aluno
     const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];
