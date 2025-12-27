@@ -2108,21 +2108,24 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
 
           </header>
         )}
-{/* ÍCONE ÍNDICE - FIXO FORA DO CONTAINER (posição do print 2) */}
+{/* ÍCONE ÍNDICE - AJUSTADO (LINHAS IGUAIS + POSIÇÃO CERTA) */}
 {viewState !== 'editor' && (
-  <div className="fixed left-4 top-[75px] z-50">
-    <button
-      onClick={() => setIsIndexOpen((v) => !v)}
-      className="w-11 h-11 flex items-center justify-center rounded-xl border border-gray-300 bg-gray-100/90 backdrop-blur-md hover:bg-white/90 shadow-md"
-      title="Abrir índice"
-      aria-label="Abrir índice"
-    >
-      <span className="flex flex-col gap-1">
-        <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
-        <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
-        <span className="block w-5 h-0.5 bg-gray-800 rounded-full" />
-      </span>
-    </button>
+  // Container invisível que alinha com o conteúdo do site
+  <div className="fixed top-[80px] left-0 w-full z-50 pointer-events-none">
+    <div className="max-w-6xl mx-auto px-4">
+      <button
+        onClick={() => setIsIndexOpen((v) => !v)}
+        // Tamanho reduzido (w-9 h-9), cor cinza médio (bg-gray-200), borda suave
+        className="pointer-events-auto w-9 h-9 flex flex-col items-center justify-center gap-[3px] rounded-lg border border-gray-300 bg-gray-200 hover:bg-white shadow-sm transition-all"
+        title="Abrir índice"
+        aria-label="Abrir índice"
+      >
+        {/* Forçando altura de 2px exatos para evitar linha fina */}
+        <span className="block w-4 h-[2px] bg-gray-500 rounded-full" />
+        <span className="block w-4 h-[2px] bg-gray-500 rounded-full" />
+        <span className="block w-4 h-[2px] bg-gray-500 rounded-full" />
+      </button>
+    </div>
   </div>
 )}
 
@@ -2226,14 +2229,6 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
           Ir mesmo assim
         </button>
       </div>
-    </div>
-  </div>
-)}
-{/* BADGE (só no aluno) */}
-{viewState !== 'editor' && !isCompleted && showOrderHint && (
-  <div className="max-w-6xl mx-auto px-4 pt-4">
-    <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-xl px-4 py-2 text-xs font-bold">
-      Recomendado seguir a ordem
     </div>
   </div>
 )}
