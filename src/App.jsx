@@ -440,7 +440,7 @@ const Dashboard = ({
   onUpdatePlanMeta, onUpdatePlanColor,
   students, 
   onCreateStudent, 
-  onDeleteStudent 
+  onDeleteStudent, onReloadData
 }) => {
 
   // Controle das Abas
@@ -456,6 +456,7 @@ const Dashboard = ({
 
   // --- ESTADOS DE ALUNOS & CONVITE ---
   const [isInviting, setIsInviting] = useState(false);
+  const [editingStudentId, setEditingStudentId] = useState(null); // ID do aluno sendo editado/aprovado
   
   // Campos básicos do convite
   const [newStudentName, setNewStudentName] = useState("");
@@ -465,7 +466,11 @@ const Dashboard = ({
   // Campos para o Template Dinâmico
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [adminFieldValues, setAdminFieldValues] = useState({});
-
+  // Estado para editar os dados extras do aluno (CPF, RG, etc.)
+  const [extraData, setExtraData] = useState({ cpf: '', rg: '', email: '', address: '', birthDate: '', profession: '' });
+  // --- NOVOS ESTADOS PARA O FLUXO DE APROVAÇÃO (WORD) ---
+  const [approvalStep, setApprovalStep] = useState(1); // 1 = Formulário, 2 = Editor Final
+  const [draftContract, setDraftContract] = useState(""); // O texto do contrato para editar
   // --- ESTADOS DE MODELOS (TEMPLATES) ---
   const [templates, setTemplates] = useState([]);
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
@@ -546,60 +551,144 @@ const Dashboard = ({
     setDuplicatingPlan(null);
   };
 
-  // --- FUNÇÕES DE ALUNO (CONVITE INTELIGENTE) ---
-  const handleCreateInvite = () => {
-    if (!newStudentName || !newStudentPhone || !selectedPlanForStudent || !selectedTemplateId) {
-      alert("Preencha Nome, WhatsApp, Fluxo e escolha um Modelo de Contrato.");
+  // --- FUNÇÕES DE ALUNO (CONVITE INTELIGENTE & APROVAÇÃO) ---
+  
+  // Função para abrir o modal com os dados do aluno que veio do site
+  // --- FUNÇÕES DE ALUNO (CONVITE INTELIGENTE & APROVAÇÃO) ---
+  
+  const openApproveModal = (student) => {
+    setEditingStudentId(student.id);
+    setNewStudentName(student.name);
+    setNewStudentPhone(student.phone);
+    setApprovalStep(1);
+    // Carrega os dados extras para edição
+    setExtraData({
+        cpf: student.cpf || '',
+        rg: student.rg || '',
+        email: student.email || '',
+        address: student.address || '',
+        birthDate: student.birthDate || '',
+        profession: student.profession || ''
+    });
+    setIsInviting(true);
+  };
+
+  // Função NOVA: Salva apenas os dados cadastrais E ATUALIZA A TELA
+  const handleSaveDataOnly = async () => {
+    if (!editingStudentId) return alert("Nenhum aluno selecionado para edição.");
+    
+    try {
+        await updateDoc(doc(db, "students", editingStudentId), {
+            name: newStudentName,
+            phone: newStudentPhone.replace(/\D/g, ''),
+            ...extraData // Salva CPF, RG, Endereço, etc.
+        });
+        
+        // Força a atualização da lista na hora!
+        if (onReloadData) {
+            await onReloadData(); 
+        }
+        
+        alert("✅ Dados do aluno atualizados com sucesso!");
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao salvar dados.");
+    }
+  };
+
+// 1. GERAR RASCUNHO (Passo A -> Passo B)
+const handleGenerateDraft = () => {
+  if (!newStudentName || !newStudentPhone || !selectedPlanForStudent || !selectedTemplateId) {
+    alert("Preencha Nome, WhatsApp, Fluxo e escolha um Modelo.");
+    return;
+  }
+
+  const template = templates.find(t => t.id === selectedTemplateId);
+  if (!template) return alert("Modelo não encontrado.");
+
+  let html = template.content;
+
+  // A. Preenche Variáveis Manuais (Admin - Valor, Duração, etc)
+  const adminFields = template.fields.filter(f => f.owner === 'admin');
+  for (const field of adminFields) {
+    const val = adminFieldValues[field.key];
+    if (!val) {
+      alert(`O campo "${field.label}" é obrigatório.`);
       return;
     }
+    const regex = new RegExp(`{{${field.key}}}`, 'g');
+    html = html.replace(regex, val);
+  }
 
-    const template = templates.find(t => t.id === selectedTemplateId);
-    if (!template) return alert("Modelo não encontrado.");
+  // B. O GRANDE DICIONÁRIO (Conecta Banco de Dados -> Contrato)
+  const studentDataForMerge = {
+      // Dados Básicos
+      nome: newStudentName,
+      telefone: newStudentPhone,
+      
+      // Dados Cadastrais (ExtraData)
+      cpf: extraData.cpf,
+      rg: extraData.rg,
+      email: extraData.email,
+      profissao: extraData.profession,
+      endereco: extraData.address,
+      
+      // Formata a data (Ex: 1998-08-07 -> 07/08/1998)
+      nascimento: extraData.birthDate ? new Date(extraData.birthDate).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : "",
+  };
 
-    let finalContractHTML = template.content;
-    
-    // Substitui campos do Admin
-    const adminFields = template.fields.filter(f => f.owner === 'admin');
-    
-    for (const field of adminFields) {
-      const val = adminFieldValues[field.key];
-      if (!val) {
-        alert(`O campo "${field.label}" é obrigatório para o Admin.`);
-        return;
-      }
-      const regex = new RegExp(`{{${field.key}}}`, 'g');
-      finalContractHTML = finalContractHTML.replace(
-        regex,
-        `<span class="contract-var">${escapeHtml(val)}</span>`
-      );
-    }
+  // Aplica a tradução no texto
+  html = applyStudentValuesToContract(html, studentDataForMerge);
 
-    const studentFields = template.fields.filter(f => f.owner === 'student');
+  // C. Avança para o Editor Final
+  setDraftContract(html);
+  setApprovalStep(2);
+};
 
-    onCreateStudent({
+  // 2. FINALIZAR E ENVIAR (Passo B -> Firebase)
+  const handleFinalizeInvite = async () => {
+    const studentFields = templates.find(t => t.id === selectedTemplateId)?.fields.filter(f => f.owner === 'student') || [];
+
+    const finalData = {
       name: newStudentName,
       phone: newStudentPhone.replace(/\D/g, ''),
+      ...extraData, 
       planId: selectedPlanForStudent,
-      contractText: finalContractHTML, 
+      contractText: draftContract, // Salva o texto que você editou no "Word"
       pendingFields: studentFields,
       templateId: selectedTemplateId,
       status: 'pending',
-      createdAt: new Date().toISOString()
-    });
-    
-    setIsInviting(false);
-    
-    setNewStudentName("");
-    setNewStudentPhone("");
-    setAdminFieldValues({});
-    setSelectedTemplateId("");
+    };
+
+    try {
+      if (editingStudentId) {
+        await updateDoc(doc(db, "students", editingStudentId), finalData);
+        alert("Contrato gerado e vinculado com sucesso!");
+      } else {
+        await onCreateStudent({
+          ...finalData,
+          createdAt: new Date().toISOString()
+        });
+      }
+      
+      // Reseta tudo
+      setIsInviting(false);
+      setEditingStudentId(null);
+      setNewStudentName("");
+      setNewStudentPhone("");
+      setExtraData({ cpf: '', rg: '', email: '', address: '', birthDate: '', profession: '' });
+      setAdminFieldValues({});
+      setSelectedTemplateId("");
+      setApprovalStep(1); // Volta para o passo 1
+      
+      if (onReloadData) await onReloadData();
+
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao salvar.");
+    }
   };
 
-  const copyStudentLink = (studentId) => {
-    const url = `${window.location.origin}/?token=${studentId}`;
-    navigator.clipboard.writeText(url);
-    alert("Link do Convite copiado! Envie para o aluno:\n" + url);
-  };
   const buildSignedContractHtml = (student) => {
     const base = student?.contractText || "<p>Contrato não encontrado.</p>";
     const values = student?.studentData || {};
@@ -823,150 +912,167 @@ const Dashboard = ({
           </div>
         )}
 
-{/* --- ABA 2: MEUS ALUNOS --- */}
-{activeTab === 'students' && (
+        {/* --- ABA 2: MEUS ALUNOS --- */}
+        {activeTab === 'students' && (
           <div className="animate-in fade-in duration-300">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-800">Lista de Alunos</h2>
-              <button onClick={() => setIsInviting(true)} className="bg-black text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-800 transition-colors shadow-lg">
+              <button onClick={() => {
+                  setEditingStudentId(null);
+                  setNewStudentName("");
+                  setNewStudentPhone("");
+                  setExtraData({ cpf: '', rg: '', email: '', address: '', birthDate: '', profession: '' });
+                  setApprovalStep(1); // Garante que começa no passo 1 (Formulário)
+                  setIsInviting(true);
+              }} className="bg-black text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-800 transition-colors shadow-lg">
                 <Plus className="w-5 h-5" /> Novo Aluno
               </button>
             </div>
 
-            {/* Modal Novo Aluno - ESTRUTURA CORRIGIDA PARA PREVIEW */}
+            {/* --- MODAL DE APROVAÇÃO 2.0 (ESTILO AUTENTIQUE) --- */}
             {isInviting && (
-              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in duration-200">
+              <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in duration-200">
                   
-                  {/* COLUNA ESQUERDA: Formulário e Dados */}
-                  <div className="w-full md:w-1/3 p-6 border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 space-y-4 overflow-y-auto">
-                    <h3 className="font-bold text-lg mb-4 text-gray-800">Dados do Convite</h3>
-                    
-                    <div className="space-y-3">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome do Aluno</label>
-                          <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-blue-500" placeholder="Ex: João Silva"/>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">WhatsApp</label>
-                          <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-blue-500" placeholder="11999998888"/>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Fluxo de Treino</label>
-                          <select value={selectedPlanForStudent} onChange={(e) => setSelectedPlanForStudent(e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white outline-none focus:border-blue-500">
-                            <option value="">Selecione um fluxo...</option>
-                            {plans.map(p => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-blue-600 uppercase mb-1">Modelo de Contrato</label>
-                          <select 
-                            value={selectedTemplateId} 
-                            onChange={(e) => {
-                              setSelectedTemplateId(e.target.value);
-                              setAdminFieldValues({}); 
-                            }} 
-                            className="w-full p-2 border border-blue-300 rounded bg-blue-50 outline-none font-bold text-blue-800 focus:ring-2 focus:ring-blue-200"
-                          >
-                            <option value="">Selecione o Modelo...</option>
-                            {templates.map(t => (
-                              <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                          </select>
-                        </div>
+                  {/* CABEÇALHO DO MODAL */}
+                  <div className="bg-gray-100 border-b border-gray-300 p-4 flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                            {approvalStep === 1 ? (
+                                <><Users className="w-5 h-5"/> Passo 1: Dados & Negociação</>
+                            ) : (
+                                <><FileSignature className="w-5 h-5"/> Passo 2: Revisão Final da Minuta (Word)</>
+                            )}
+                        </h3>
+                        <p className="text-xs text-gray-500">
+                            {approvalStep === 1 ? "Confira os dados do aluno e defina as regras do plano." : "Edite o texto final se necessário. O que estiver aqui será o contrato oficial."}
+                        </p>
                     </div>
+                    <button onClick={() => setIsInviting(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                        <X className="w-6 h-6 text-gray-500"/>
+                    </button>
+                  </div>
+
+                  {/* CORPO DO MODAL (DIVIDIDO) */}
+                  <div className="flex-1 flex overflow-hidden">
                     
-                    {/* CAMPOS DINÂMICOS DO ADMIN */}
-                    {selectedTemplateId && (
-                        <div className="pt-4 border-t border-gray-200 animate-in fade-in">
-                          <h4 className="font-bold text-sm mb-3 text-blue-800">Preencher Dados da Minuta</h4>
-                          <div className="space-y-3 p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
-                              {templates.find(t => t.id === selectedTemplateId)?.fields?.filter(f => f.owner === 'admin').map((field, idx) => (
-                                  <div key={idx}>
-                                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">{field.label}</label>
-                                      <input 
-                                        type={field.type === 'date' ? 'date' : 'text'} 
-                                        placeholder={`Digite ${field.label}...`} 
-                                        value={adminFieldValues[field.key] || ''} 
-                                        onChange={(e) => setAdminFieldValues({...adminFieldValues, [field.key]: e.target.value})} 
-                                        className="w-full p-2 border border-gray-200 rounded text-sm outline-none focus:border-blue-500"
-                                      />
-                                  </div>
-                              ))}
-                          </div>
+                    {/* --- PASSO 1: FORMULÁRIO DE DADOS --- */}
+                    {approvalStep === 1 && (
+                        <>
+                            {/* COLUNA ESQUERDA: DADOS */}
+                            <div className="w-1/3 bg-gray-50 p-6 border-r border-gray-200 overflow-y-auto space-y-5">
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-gray-400 uppercase">Dados Básicos</label>
+                                    <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full p-2 border rounded bg-white" placeholder="Nome Completo"/>
+                                    <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-2 border rounded bg-white" placeholder="WhatsApp"/>
+                                </div>
+
+                                <div className="bg-white p-4 rounded-lg border border-gray-300 shadow-sm space-y-3">
+                                    <h4 className="font-bold text-gray-700 text-xs uppercase border-b pb-2 mb-2 flex items-center gap-2">
+                                        <FileText className="w-3 h-3"/> Dados Cadastrais (Editável)
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input type="text" placeholder="CPF" value={extraData.cpf} onChange={e => setExtraData({...extraData, cpf: e.target.value})} className="w-full p-2 border rounded text-sm"/>
+                                        <input type="text" placeholder="RG" value={extraData.rg} onChange={e => setExtraData({...extraData, rg: e.target.value})} className="w-full p-2 border rounded text-sm"/>
+                                        <input type="date" value={extraData.birthDate} onChange={e => setExtraData({...extraData, birthDate: e.target.value})} className="w-full p-2 border rounded text-sm"/>
+                                        <input type="text" placeholder="Profissão" value={extraData.profession} onChange={e => setExtraData({...extraData, profession: e.target.value})} className="w-full p-2 border rounded text-sm"/>
+                                        <input type="text" placeholder="Endereço Completo" value={extraData.address} onChange={e => setExtraData({...extraData, address: e.target.value})} className="w-full p-2 border rounded text-sm col-span-2"/>
+                                        <input type="text" placeholder="Email" value={extraData.email} onChange={e => setExtraData({...extraData, email: e.target.value})} className="w-full p-2 border rounded text-sm col-span-2"/>
+                                    </div>
+                                    {/* Botão de Salvar Apenas Dados */}
+                                    {editingStudentId && (
+                                        <button onClick={handleSaveDataOnly} className="w-full py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded hover:bg-blue-100 flex items-center justify-center gap-2 border border-blue-200">
+                                            <Save className="w-3 h-3"/> Salvar Correções no Banco
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="space-y-3 border-t pt-4">
+                                    <label className="text-xs font-bold text-gray-400 uppercase">Configuração do Contrato</label>
+                                    <select value={selectedPlanForStudent} onChange={(e) => setSelectedPlanForStudent(e.target.value)} className="w-full p-2 border rounded bg-white">
+                                        <option value="">Selecione o Fluxo...</option>
+                                        {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                    <select value={selectedTemplateId} onChange={(e) => {setSelectedTemplateId(e.target.value); setAdminFieldValues({});}} className="w-full p-2 border rounded bg-white font-bold text-blue-800">
+                                        <option value="">Selecione o Modelo...</option>
+                                        {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                    </select>
+                                </div>
+
+                                {selectedTemplateId && (
+                                    <div className="bg-yellow-50 p-4 rounded border border-yellow-200 animate-in fade-in">
+                                        <h4 className="text-xs font-bold text-yellow-700 uppercase mb-2">Variáveis de Negociação</h4>
+                                        {templates.find(t => t.id === selectedTemplateId)?.fields?.filter(f => f.owner === 'admin').map((field, idx) => (
+                                            <div key={idx} className="mb-2">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase">{field.label}</label>
+                                                <input type={field.type === 'date' ? 'date' : 'text'} value={adminFieldValues[field.key] || ''} onChange={(e) => setAdminFieldValues({...adminFieldValues, [field.key]: e.target.value})} className="w-full p-2 border border-yellow-300 rounded bg-white text-sm font-medium"/>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* COLUNA DIREITA: PRÉVIA ESTÁTICA (AVISO) */}
+                            <div className="w-2/3 p-8 bg-gray-100 overflow-y-auto flex flex-col items-center justify-center">
+                                <div className="w-[210mm] min-h-[297mm] bg-white shadow-2xl p-[20mm] text-gray-400 select-none opacity-60 flex flex-col items-center justify-center border border-gray-300 text-center gap-4">
+                                    <FileText className="w-16 h-16 opacity-20"/>
+                                    <p className="text-sm font-medium">
+                                        A visualização e edição final do contrato<br/>aparecerão na próxima etapa.
+                                    </p>
+                                    <p className="text-xs">Preencha os dados à esquerda e clique em "Próximo".</p>
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {/* --- PASSO 2: EDITOR FINAL (WORD) --- */}
+                    {approvalStep === 2 && (
+                        <div className="w-full h-full bg-gray-200 flex justify-center overflow-hidden">
+                             {/* Aqui o contrato já vem montado para você editar se quiser */}
+                             <RichTextEditor isA4={true} value={draftContract} onChange={setDraftContract} />
                         </div>
+                    )}
+
+                  </div>
+
+                  {/* RODAPÉ: BOTÕES DE AÇÃO */}
+                  <div className="bg-white border-t border-gray-300 p-4 flex justify-end gap-3 z-50">
+                    <button 
+                        onClick={() => setIsInviting(false)} 
+                        className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-bold transition-colors text-xs mr-auto"
+                    >
+                        Cancelar
+                    </button>
+
+                    {approvalStep === 1 ? (
+                        <button 
+                            onClick={handleGenerateDraft} 
+                            className="px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 shadow-lg flex items-center gap-2"
+                        >
+                            Próximo: Revisar Minuta <ChevronRight className="w-4 h-4"/>
+                        </button>
+                    ) : (
+                        <>
+                            <button 
+                                onClick={() => setApprovalStep(1)} 
+                                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50"
+                            >
+                                Voltar e Editar Dados
+                            </button>
+                            <button 
+                                onClick={handleFinalizeInvite} 
+                                className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-lg flex items-center gap-2"
+                            >
+                                <CheckCircle className="w-4 h-4"/> Aprovar e Enviar Link
+                            </button>
+                        </>
                     )}
                   </div>
 
-                  {/* COLUNA DIREITA: Preview em tempo real */}
-                  <div className="w-full md:w-2/3 p-6 flex flex-col bg-white overflow-hidden">
-                    <div className="flex justify-between items-center mb-4">
-                       <h3 className="font-bold text-lg text-gray-800">Prévia do Contrato</h3>
-                       <button onClick={() => setIsInviting(false)} className="p-1 hover:bg-gray-100 rounded-full text-gray-400 transition-colors">
-                         <X className="w-6 h-6"/>
-                       </button>
-                    </div>
-                    
-                    <div className="flex-1 w-full p-8 border border-gray-200 rounded-lg text-sm leading-relaxed bg-gray-50 overflow-y-auto min-h-[400px] shadow-inner relative">
-                        {selectedTemplateId ? (
-                             <div 
-                               dangerouslySetInnerHTML={{ 
-                                __html: (() => {
-                                  const tpl = templates.find(t => String(t.id) === String(selectedTemplateId));
-                                  if (!tpl?.content) return "<p>Modelo sem conteúdo.</p>";
-                                
-                                  let html = tpl.content;
-                                
-                                  // aplica campos do admin na prévia
-                                  (tpl.fields || [])
-                                    .filter(f => f.owner === "admin")
-                                    .forEach((f) => {
-                                      const safeKey = String(f.key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                                      const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
-                                      html = html.replace(regex, adminFieldValues[f.key] ? `<b>${adminFieldValues[f.key]}</b>` : "________________");
-                                    });
-                                
-                                  // campos do aluno ficam em branco na prévia
-                                  (tpl.fields || [])
-                                    .filter(f => f.owner === "student")
-                                    .forEach((f) => {
-                                      const safeKey = String(f.key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                                      const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
-                                      html = html.replace(regex, "________________");
-                                    });
-                                
-                                  return html;
-                                })()                                 
-                               }} 
-                               className="prose prose-sm max-w-none text-gray-700" 
-                             />
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-3">
-                                <FileText className="w-16 h-16 opacity-10"/>
-                                <p className="font-medium italic">Selecione um modelo à esquerda para visualizar o contrato.</p>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="mt-6 flex justify-end gap-3">
-                      <button 
-                        onClick={() => setIsInviting(false)} 
-                        className="px-6 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-bold transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleCreateInvite} 
-                        className="px-8 py-2 bg-black text-white rounded-lg font-bold hover:bg-gray-800 shadow-lg flex items-center gap-2 transition-transform active:scale-95"
-                      >
-                        <span>Gerar Convite</span> 
-                        <ChevronRight className="w-4 h-4"/>
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
+
             {/* Lista de Alunos na Tabela */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               {students.length === 0 ? (
@@ -996,9 +1102,13 @@ const Dashboard = ({
                                 <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 py-1 px-2 rounded-full text-xs font-bold border border-green-200">
                                     <CheckCircle className="w-3 h-3"/> Assinado
                                 </span>
+                            ) : student.status === 'em_analise' ? (
+                                <button onClick={() => openApproveModal(student)} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 py-1 px-3 rounded-full text-xs font-bold border border-blue-200 hover:bg-blue-200 hover:scale-105 transition-all animate-pulse">
+                                    <FileSignature className="w-3 h-3"/> Analisar Cadastro
+                                </button>
                             ) : (
                                 <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-700 py-1 px-2 rounded-full text-xs font-bold border border-yellow-200">
-                                    <Loader className="w-3 h-3"/> Pendente
+                                    <Loader className="w-3 h-3"/> Aguardando Assinatura
                                 </span>
                             )}
                           </td>
@@ -1024,8 +1134,6 @@ const Dashboard = ({
             </div>
           </div>
         )}
-        
-        {/* --- ABA 3: MEUS MODELOS (ETAPA 1) --- */}
         {activeTab === 'templates' && (
           <div className="animate-in fade-in duration-300">
             {!isEditingTemplate ? (
@@ -1060,6 +1168,28 @@ const Dashboard = ({
                     <RichTextEditor isA4={true} value={currentTemplate.content} onChange={(html) => setCurrentTemplate({...currentTemplate, content: html})} />                  </div>
                   <div className="w-full md:w-1/3 p-6 bg-gray-50 overflow-y-auto">
                     <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Settings className="w-4 h-4"/> Variáveis</h3>
+                    {/* --- BLOCO NOVO: A COLA DE VARIÁVEIS AUTOMÁTICAS --- */}
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-200 mb-6 shadow-sm">
+                      <h4 className="text-xs font-bold text-blue-800 uppercase mb-2 flex items-center gap-2">
+                        <CheckCircle className="w-3 h-3"/> Automáticas (Já inclusas)
+                      </h4>
+                      <p className="text-[10px] text-blue-600 mb-3 leading-tight">
+                        O sistema preenche estes dados sozinho com base no cadastro do aluno. Use exatamente assim:
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {['{{nome}}', '{{cpf}}', '{{rg}}', '{{endereco}}', '{{email}}', '{{telefone}}', '{{profissao}}', '{{nascimento}}'].map(tag => (
+                          <div 
+                            key={tag} 
+                            className="bg-white border border-blue-100 rounded px-2 py-1 text-[10px] font-mono text-blue-700 font-bold text-center cursor-pointer hover:bg-blue-100 transition-colors" 
+                            onClick={() => {navigator.clipboard.writeText(tag); alert(`Copiado: ${tag}`)}}
+                            title="Clique para copiar"
+                          >
+                            {tag}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {/* --------------------------------------------------- */}
                     <div className="bg-white p-4 rounded-xl border border-gray-200 mb-6 shadow-sm">
                       <h4 className="text-xs font-bold text-blue-600 uppercase mb-3">Nova Variável</h4>
                       <div className="space-y-3">
@@ -1080,6 +1210,115 @@ const Dashboard = ({
           </div>
         )}
 
+      </div>
+    </div>
+  );
+};
+
+// --- NOVO COMPONENTE: PRÉ-CADASTRO PÚBLICO ---
+const StudentRegistration = ({ db }) => {
+  const [formData, setFormData] = useState({
+    name: "", cpf: "", rg: "", email: "", phone: "",
+    address: "", profession: "", birthDate: ""
+  });
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.name || !formData.phone || !formData.cpf) return alert("Preencha os campos obrigatórios.");
+    
+    setLoading(true);
+    try {
+      // Cria o aluno com status 'em_analise'
+      const docRef = doc(collection(db, "students"));
+      await setDoc(docRef, {
+        ...formData,
+        phone: formData.phone.replace(/\D/g, ''), // Limpa o telefone
+        status: 'em_analise', // Status novo para sua aprovação
+        createdAt: new Date().toISOString(),
+        planId: null, // Ainda não tem plano
+        templateId: null // Ainda não tem contrato
+      });
+      setSuccess(true);
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao enviar cadastro. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5] p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md animate-in zoom-in">
+          <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8"/>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Cadastro Recebido!</h2>
+          <p className="text-gray-600">Recebemos seus dados com sucesso. Nossa equipe vai analisar e entrará em contato pelo WhatsApp em breve para a assinatura do contrato.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F7F7F5] py-10 px-4 font-sans flex items-center justify-center">
+      <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom-4">
+        <div className="bg-black p-6 text-white text-center">
+          <h1 className="text-2xl font-bold">Ficha de Cadastro</h1>
+          <p className="text-gray-400 text-sm mt-1">Preencha seus dados para iniciar a consultoria</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome Completo *</label>
+              <input name="name" required value={formData.name} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" placeholder="Seu nome completo" />
+            </div>
+            
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">CPF *</label>
+              <input name="cpf" required value={formData.cpf} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" placeholder="000.000.000-00" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">RG *</label>
+              <input name="rg" required value={formData.rg} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" placeholder="Registro Geral" />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data de Nascimento *</label>
+              <input name="birthDate" type="date" required value={formData.birthDate} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Profissão *</label>
+              <input name="profession" required value={formData.profession} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" placeholder="Sua profissão" />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Endereço Completo *</label>
+              <input name="address" required value={formData.address} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" placeholder="Rua, Número, Bairro, Cidade - UF, CEP" />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">WhatsApp (com DDD) *</label>
+              <input name="phone" type="tel" required value={formData.phone} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" placeholder="(00) 90000-0000" />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">E-mail *</label>
+              <input name="email" type="email" required value={formData.email} onChange={handleChange} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-black transition-colors" placeholder="seu@email.com" />
+            </div>
+          </div>
+
+          <button type="submit" disabled={loading} className="w-full py-4 bg-black text-white rounded-xl font-bold hover:bg-gray-800 transition-all flex items-center justify-center gap-2 shadow-lg mt-4">
+            {loading ? <Loader className="w-5 h-5 animate-spin"/> : "Enviar Cadastro"}
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -1351,10 +1590,14 @@ const OnboardingConsultoria = () => {
       const urlId = params.get('id');        
       const urlToken = params.get('token'); 
       const urlAdmin = params.get('admin');
+      const urlRegister = params.get('register'); // Link público de cadastro
 
-      // CASO 1: LINK DE ALUNO
-      if (urlToken) {
-        try {
+      // CASO 0: PRÉ-CADASTRO PÚBLICO (NOVO)
+      if (urlRegister) {
+          setViewState('public_register');
+      
+      // CASO 1: LINK DE ALUNO (EXISTENTE)
+      } else if (urlToken) {        try {
             const studentRef = doc(db, "students", urlToken);
             const studentSnap = await getDoc(studentRef);
             if (studentSnap.exists()) {
@@ -1821,7 +2064,8 @@ const handleImageUpload = async (index, e) => {
         
         students={students}
         onCreateStudent={onCreateStudent}
-        onDeleteStudent={handleDeleteStudent} 
+        onDeleteStudent={handleDeleteStudent}
+        onReloadData={loadAllStudents}
       />
     );
   }
@@ -1830,6 +2074,10 @@ const handleImageUpload = async (index, e) => {
 
   if (viewState === 'loading') return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5]"><Loader className="w-8 h-8 animate-spin text-gray-400"/></div>;
   
+  // TELA 0: PRÉ-CADASTRO
+  if (viewState === 'public_register') {
+    return <StudentRegistration db={db} />;
+  }
   // TELA 1: LOGIN ADMIN
   if (viewState === 'login') return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#F7F7F5] p-4 font-sans">
@@ -1915,8 +2163,19 @@ const handleImageUpload = async (index, e) => {
     // campos do modelo que são do aluno
     const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];
 
-    // junta: campos dinâmicos + CPF/Endereço (que tu mantém como fixos)
+    // AQUI ESTÁ A MÁGICA: Junta o que ele digita com o que JÁ ESTÁ SALVO (que você corrigiu)
     const mergedValues = {
+      // Dados salvos no banco (Correção do Admin)
+      name: activeStudent.name,
+      phone: activeStudent.phone,
+      cpf: activeStudent.cpf,
+      rg: activeStudent.rg,
+      email: activeStudent.email,
+      address: activeStudent.address,
+      birthDate: activeStudent.birthDate ? new Date(activeStudent.birthDate).toLocaleDateString('pt-BR') : "",
+      profession: activeStudent.profession,
+      
+      // Dados que ele está digitando agora (se houver campos extras)
       ...studentFieldValues,
     };
 
