@@ -323,114 +323,171 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
   );
 };
 
-// --- COMPONENTE DE ASSINATURA V4 (POINTER EVENTS - ALTA PRECISÃO) ---
+// --- COMPONENTE DE ASSINATURA V5 (POINTER EVENTS + TRANSFORM FIX + PRESSURE) ---
 const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = useRef(null);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const ctxRef = useRef(null);
+  const sizeRef = useRef({ w: 0, h: 250, ratio: 1 });
+  const drawingRef = useRef(false);
 
-  // Configuração inicial do Canvas (Alta Resolução)
+  // 1. Configuração Robusta do Canvas (Resistente a Resize/Zoom)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const resizeCanvas = () => {
       const parent = canvas.parentElement;
-      if (parent) {
-        // Define a resolução interna baseada no pixel ratio (Retina screens)
-        const ratio = Math.max(window.devicePixelRatio || 1, 1);
-        canvas.width = parent.offsetWidth * ratio;
-        canvas.height = 250 * ratio; // Altura fixa interna
-        
-        // Define o tamanho de exibição CSS
-        canvas.style.width = `${parent.offsetWidth}px`;
-        canvas.style.height = '250px';
+      if (!parent) return;
 
-        const ctx = canvas.getContext('2d');
-        ctx.scale(ratio, ratio);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = 3; 
-        ctx.strokeStyle = '#000';
-      }
+      // Detecta Retina Display/Alta DPI
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const w = parent.offsetWidth;
+      const h = 250; // Altura fixa
+
+      sizeRef.current = { w, h, ratio };
+
+      // Define resolução interna (Pixels reais)
+      canvas.width = Math.floor(w * ratio);
+      canvas.height = Math.floor(h * ratio);
+
+      // Define tamanho visual (CSS)
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      // 🔥 CORREÇÃO CRÍTICA: Reseta a matriz antes de escalar
+      // Isso impede que a linha fique "gigante" ou desalinhada ao girar o celular
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 3;
+
+      ctxRef.current = ctx;
     };
 
+    // Inicia e adiciona ouvinte para mudanças de tela
     resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    return () => window.removeEventListener('resize', resizeCanvas);
+    window.addEventListener("resize", resizeCanvas);
+    
+    return () => window.removeEventListener("resize", resizeCanvas);
   }, []);
 
-  // Captura a coordenada exata relativa ao elemento, corrigindo scroll e zoom
+  // 2. Cálculo de Coordenadas (Compensa o Scroll e Posição do Elemento)
   const getPoint = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    
-    // PointerEvent retorna clientX/Y. Subtraímos o rect para pegar o offset local.
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
+    return { 
+      x: e.clientX - rect.left, 
+      y: e.clientY - rect.top 
     };
   };
 
   const handlePointerDown = (e) => {
-    e.preventDefault(); // Impede scroll da tela ao tocar
-    setIsDrawing(true);
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const { x, y } = getPoint(e);
+    e.preventDefault(); // Impede scroll
+    e.stopPropagation(); // Impede seleção de texto
     
+    const canvas = canvasRef.current;
+    const ctx = ctxRef.current;
+    if (!canvas || !ctx) return;
+
+    drawingRef.current = true;
+
+    const { x, y } = getPoint(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
-    canvas.setPointerCapture(e.pointerId); // "Gruda" o evento ao canvas
+
+    // "Gruda" o evento ao canvas para não perder o traço se sair rápido
+    canvas.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e) => {
-    e.preventDefault(); 
-    if (!isDrawing) return;
+    e.preventDefault();
+    e.stopPropagation();
     
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    if (!drawingRef.current) return;
+
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+
+    // Simulação de Pressão (Deixa o traço mais natural)
+    const pressure = typeof e.pressure === "number" && e.pressure > 0 ? e.pressure : 0.5;
+    // Varia a largura entre 2.5 e 5 dependendo da força (ou padrão 0.5)
+    ctx.lineWidth = 2.5 + (pressure * 2.5);
+
     const { x, y } = getPoint(e);
-    
     ctx.lineTo(x, y);
     ctx.stroke();
   };
 
-  const handlePointerUp = (e) => {
+  const finishStroke = (e) => {
     e.preventDefault();
-    setIsDrawing(false);
+    if (!drawingRef.current) return;
+
+    drawingRef.current = false;
     const canvas = canvasRef.current;
-    canvas.releasePointerCapture(e.pointerId);
     
-    if (onSave) onSave(canvas.toDataURL());
+    // Libera o cursor/dedo
+    try {
+      if (canvas && e.pointerId) canvas.releasePointerCapture(e.pointerId);
+    } catch (err) { /* Ignora erro se o ponteiro já sumiu */ }
+
+    // Salva automaticamente ao levantar o dedo
+    if (onSave && canvas) {
+        onSave(canvas.toDataURL("image/png"));
+    }
   };
 
   const clear = () => {
+    const ctx = ctxRef.current;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    // Limpa usando as coordenadas reais (internas)
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!ctx || !canvas) return;
+
+    const { w, h } = sizeRef.current;
+    
+    // Limpa a área visual (o transform cuida da conversão de pixels)
+    ctx.clearRect(0, 0, w, h);
+
     if (onClear) onClear();
   };
 
   return (
-    <div className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner select-none touch-none">
+    <div 
+      className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner select-none touch-none"
+      style={{ touchAction: "none" }} // Segurança extra para CSS
+    >
       <canvas
         ref={canvasRef}
-        // Usamos Pointer Events (funciona para Mouse, Touch e Caneta)
+        
+        // Eventos Unificados (Pointer Events)
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp} // Se o dedo sair da tela
-        style={{ touchAction: 'none', display: 'block', width: '100%', height: '250px' }}
+        onPointerUp={finishStroke}
+        onPointerCancel={finishStroke}
+        onPointerLeave={finishStroke}
+        onPointerOut={finishStroke}
+        
+        style={{ 
+            touchAction: "none", 
+            display: "block", 
+            width: "100%", 
+            height: "250px",
+            cursor: "crosshair"
+        }}
       />
+      
       <div className="bg-gray-50 p-2 border-t border-gray-200 flex justify-between items-center px-4">
-        <span className="text-[10px] text-gray-400 uppercase font-bold">Assine no espaço acima</span>
-        <button 
-          onClick={clear} 
+        <span className="text-[10px] text-gray-400 uppercase font-bold pointer-events-none">
+            Assine no espaço acima
+        </span>
+        <button
+          onClick={clear}
           type="button"
           className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1.5 rounded transition-colors uppercase tracking-wide"
         >
-            Limpar
+          Limpar
         </button>
       </div>
     </div>
