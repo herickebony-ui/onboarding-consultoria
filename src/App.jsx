@@ -1512,8 +1512,9 @@ const OnboardingConsultoria = () => {
     if (!db || !activePlanId) return alert("Erro de configuração.");
     setIsSaving(true);
     try {
-      // CORREÇÃO: Usamos updateDoc para atualizar apenas o conteúdo interno.
-      // Removemos a propriedade "name" daqui para não sobrescrever o título do Dashboard.
+      // CORREÇÃO URGENTE:
+      // Mudamos de setDoc (que apaga tudo) para updateDoc (que só atualiza o necessário).
+      // Removemos o campo "name" daqui para ele NÃO mexer no nome do Dashboard.
       await updateDoc(doc(db, "onboarding", activePlanId), { 
         coachName, 
         whatsappLink, 
@@ -1522,7 +1523,7 @@ const OnboardingConsultoria = () => {
         finalButtonText, 
         steps 
       });
-      alert("✅ Fluxo salvo com sucesso!");
+      alert("✅ Fluxo salvo com sucesso! (Cor e Nome mantidos)");
     } catch (error) { 
       alert("Erro ao salvar."); 
       console.error(error); 
