@@ -2053,6 +2053,19 @@ const renderStepContent = (step) => (
 
 // --- RENDER FINAL (EDITOR OU ALUNO) ---
 if (viewState === 'editor' || viewState === 'student_view_flow' || viewState === 'student_view_legacy') {
+
+  // 🛑 TRAVA DE SEGURANÇA MÁXIMA (GUARDIÃO)
+  // Se o sistema tentar abrir o EDITOR, ele verifica se existe a credencial de admin.
+  // Se for um aluno (que não tem essa credencial), ele é bloqueado e enviado pro Login.
+  if (viewState === 'editor') {
+     const isAdmin = sessionStorage.getItem('ebony_admin') === 'true';
+     if (!isAdmin) {
+         // Não tem permissão? Redireciona para o login agora.
+         setTimeout(() => setViewState('login'), 0); 
+         return null; // Não renderiza nada administrativo
+     }
+  }
+
   return (
     <div className="min-h-screen bg-[#F7F7F5] font-sans text-gray-900 relative pb-32">
       {/* HEADER DO EDITOR (SE TIVER) */}
