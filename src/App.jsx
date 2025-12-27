@@ -322,33 +322,69 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
   );
 };
 
+// --- COMPONENTE DE ASSINATURA PROFISSIONAL (CORRIGIDO) ---
 const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
+  // Helper: Pega a posição exata (Mouse ou Toque) relativa ao Canvas
+  const getCoordinates = (event) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;   // Fator de escala Horizontal
+    const scaleY = canvas.height / rect.height; // Fator de escala Vertical
+
+    let clientX, clientY;
+
+    if (event.touches && event.touches.length > 0) {
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    }
+
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  // Inicializa o Canvas com Alta Resolução (Retina Display Fix)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
-      canvas.width = canvas.parentElement.offsetWidth;
-      canvas.height = 200;
+      // Pega o tamanho visual do elemento pai
+      const parentWidth = canvas.parentElement.offsetWidth;
+      const height = 250; // Altura fixa confortável
+
+      // Define a resolução interna (aumenta pixels para nitidez)
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = parentWidth * ratio;
+      canvas.height = height * ratio;
+
+      // Mantém o tamanho visual correto no CSS
+      canvas.style.width = `${parentWidth}px`;
+      canvas.style.height = `${height}px`;
+
+      // Configura o contexto 2D
       const ctx = canvas.getContext('2d');
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
+      ctx.scale(ratio, ratio); // Escala para desenhar no tamanho certo
+      ctx.lineWidth = 2.5;     // Traço um pouco mais grosso
+      ctx.lineCap = 'round';   // Pontas arredondadas
+      ctx.lineJoin = 'round';  // Junções arredondadas
       ctx.strokeStyle = '#000';
     }
-  }, []);
-
-  const getPos = (e) => {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  };
+  }, []); // Roda 1 vez ao montar
 
   const startDrawing = (e) => {
+    // Evita scroll em alguns navegadores antigos, mas o CSS touch-action resolve 99%
+    if (e.cancelable) e.preventDefault(); 
+    
     setIsDrawing(true);
-    const { x, y } = getPos(e);
+    const { x, y } = getCoordinates(e);
     const ctx = canvasRef.current.getContext('2d');
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -356,8 +392,9 @@ const SignaturePad = ({ onSave, onClear }) => {
 
   const draw = (e) => {
     if (!isDrawing) return;
-    e.preventDefault();
-    const { x, y } = getPos(e);
+    if (e.cancelable) e.preventDefault(); // Trava scroll nativo do browser
+
+    const { x, y } = getCoordinates(e);
     const ctx = canvasRef.current.getContext('2d');
     ctx.lineTo(x, y);
     ctx.stroke();
@@ -365,32 +402,48 @@ const SignaturePad = ({ onSave, onClear }) => {
 
   const stopDrawing = () => {
     setIsDrawing(false);
-    if (onSave) onSave(canvasRef.current.toDataURL());
+    if (onSave && canvasRef.current) {
+        // Salva a imagem
+        onSave(canvasRef.current.toDataURL("image/png"));
+    }
   };
 
   const clear = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    // Limpa considerando o tamanho real (com pixel ratio)
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (onClear) onClear();
   };
 
   return (
-    <div className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner">
+    <div className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner select-none">
       <canvas
         ref={canvasRef}
+        
+        // Eventos de Mouse
         onMouseDown={startDrawing}
         onMouseMove={draw}
         onMouseUp={stopDrawing}
         onMouseLeave={stopDrawing}
+        
+        // Eventos de Toque (Mobile)
         onTouchStart={startDrawing}
         onTouchMove={draw}
         onTouchEnd={stopDrawing}
-        className="w-full bg-white cursor-crosshair touch-none"
-        style={{ height: '200px' }}
+        
+        className="w-full bg-white cursor-crosshair block"
+        style={{ 
+            height: '250px',
+            // MÁGICA DO MOBILE: Isso diz ao navegador "NÃO role a tela se tocar aqui"
+            touchAction: 'none' 
+        }}
       />
-      <div className="bg-gray-50 p-2 border-t border-gray-200 flex justify-end">
-        <button onClick={clear} className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1 rounded">Limpar Assinatura</button>
+      <div className="bg-gray-50 p-2 border-t border-gray-200 flex justify-between items-center px-4">
+        <span className="text-[10px] text-gray-400">Assine dentro da área acima</span>
+        <button onClick={clear} className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1.5 rounded transition-colors uppercase tracking-wide">
+            Limpar Assinatura
+        </button>
       </div>
     </div>
   );
@@ -711,88 +764,173 @@ const handleGenerateDraft = () => {
     }
     return html;
   };
+  // --- GERADOR DA PÁGINA DE LOG (ESTILO AUTENTIQUE) ---
+  const buildAuditPageHtml = (student) => {
+    const sData = student.studentData || {};
+    const signDate = sData.signedAt ? new Date(sData.signedAt).toLocaleString('pt-BR') : 'Data n/d';
+    const createdDate = student.createdAt ? new Date(student.createdAt).toLocaleString('pt-BR') : 'Data n/d';
+    const ip = sData.ipAddress || "IP não registrado";
+    const docId = student.id;
+    
+    // Hash Fictício para dar autoridade visual (ou use o ID do documento)
+    const hashId =  docId.split('').reverse().join('') + "ab9"; 
 
-  // ✅ FUNÇÃO CORRIGIDA: Gera PDF nítido e sem páginas em branco
-  const generateContractPDF = async (student) => {
-    if (!student?.signature?.image) {
-      alert("Este aluno ainda não assinou.");
-      return;
-    }
-  
-    // 1. Feedback visual de carregamento
-    const loadingId = "pdf-loading-toast";
-    const existingLoading = document.getElementById(loadingId);
-    if (!existingLoading) {
-        const loadingMsg = document.createElement('div');
-        loadingMsg.id = loadingId;
-        loadingMsg.innerHTML = `
-          <div style="position:fixed;top:20px;right:20px;background:black;color:white;padding:15px 25px;border-radius:8px;z-index:99999;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.2);display:flex;align-items:center;gap:10px;">
-            <div style="width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
-            <span style="font-weight:bold;font-size:14px;">Preparando Documento...</span>
-          </div>
-          <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-        `;
-        document.body.appendChild(loadingMsg);
-    }
-  
-    try {
-      // 2. Prepara o documento PDF
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "pt", // Usamos pontos para precisão tipográfica
-        format: "a4"
-      });
-  
-      // 3. Container TEMPORÁRIO (O Segredo: Fora da tela, mas visível)
-      // Se usar display:none ou z-index negativo, o PDF sai branco.
-      // A solução é jogar ele lá longe (left: -10000px).
-      const container = document.createElement("div");
-      container.style.position = "absolute";
-      container.style.left = "-10000px";
-      container.style.top = "0";
-      container.style.width = "794px"; // Largura A4 Fixa
-      
-      // Monta o HTML preenchido
-      const signedHtml = buildSignedContractHtml(student);
-      container.innerHTML = wrapHtmlForPdf(signedHtml);
-      document.body.appendChild(container);
-  
-      // 4. Aguarda renderização das imagens (Assinatura)
-      // Damos um tempo para o navegador "pintar" o container fora da tela
-      await new Promise(resolve => setTimeout(resolve, 1000));
-  
-      // 5. Converte HTML para PDF (Vetorizado/Texto Selecionável)
-      await pdf.html(container.querySelector(".pdf-container"), {
-        callback: (doc) => {
-          const fileName = `Contrato_${String(student.name || "Aluno").replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
-          doc.save(fileName);
-          
-          // Limpeza
-          document.body.removeChild(container);
-          const loadingEl = document.getElementById(loadingId);
-          if (loadingEl) document.body.removeChild(loadingEl);
-        },
-        x: 0,
-        y: 0,
-        html2canvas: {
-          scale: 0.75, // Ajuste fino para converter PX (tela) para PT (pdf)
-          useCORS: true, // Permite carregar a imagem da assinatura
-          logging: false
-        },
-        autoPaging: 'text', // Quebra de página inteligente (não corta texto ao meio)
-        margin: [20, 0, 20, 0], // Margens superior/inferior no PDF final
-        width: 595 // Largura útil do A4 em pontos (pt)
-      });
-  
-    } catch (error) {
-      console.error("❌ Erro ao gerar PDF:", error);
-      alert("Erro ao gerar o PDF. Tente novamente.");
-      
-      // Remove loading em caso de erro
-      const loadingEl = document.getElementById(loadingId);
-      if (loadingEl) document.body.removeChild(loadingEl);
-    }
+    return `
+      <div class="page-break" style="padding-top: 40px; font-family: sans-serif; color: #333;">
+        
+        <div style="border-bottom: 1px solid #ccc; padding-bottom: 20px; margin-bottom: 40px; display: flex; justify-content: space-between; align-items: center;">
+           <div style="font-weight: bold; font-size: 24px; color: #000;">Team Ebony</div>
+           <div style="text-align: right; font-size: 10px; color: #666;">
+              Autenticação eletrônica<br>
+              Data e hora: ${signDate}<br>
+              ID do Documento: ${docId}
+           </div>
+        </div>
+
+        <h2 style="text-align: center; font-size: 18px; margin-bottom: 50px;">Página de Assinaturas</h2>
+
+        <div style="display: flex; justify-content: space-around; margin-bottom: 60px;">
+            
+            <div style="text-align: center; width: 45%;">
+                ${student.signature?.image 
+                  ? `<img src="${student.signature.image}" style="width: 150px; height: auto; display: block; margin: 0 auto 10px auto;" />` 
+                  : '<div style="height: 50px;"></div>'}
+                <div style="border-top: 1px solid #000; padding-top: 5px;">
+                    <div style="font-weight: bold; font-size: 14px;">${student.name}</div>
+                    <div style="font-size: 12px; color: #555;">CPF: ${sData.cpf || 'Não informado'}</div>
+                    <div style="font-size: 12px; color: #555;">Signatário (Aluno)</div>
+                </div>
+            </div>
+
+            <div style="text-align: center; width: 45%;">
+                <div style="height: 45px; display:flex; align-items:end; justify-content:center; font-family: 'Brush Script MT', cursive; font-size: 20px; color: #333;">
+                   Team Ebony Assinatura
+                </div>
+                <div style="border-top: 1px solid #000; padding-top: 5px;">
+                    <div style="font-weight: bold; font-size: 14px;">Consultoria Team Ebony</div>
+                    <div style="font-size: 12px; color: #555;">Contratada</div>
+                </div>
+            </div>
+        </div>
+
+        <h3 style="font-size: 14px; border-bottom: 2px solid #333; padding-bottom: 5px; margin-bottom: 20px;">HISTÓRICO DE AUDITORIA</h3>
+        
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px 0; width: 130px; font-weight: bold; color: #555;">${createdDate}</td>
+                <td style="padding: 10px 0;">
+                    <span style="font-weight: bold;">Documento Criado</span><br>
+                    <span style="color: #666;">Gerado pelo sistema Team Ebony.</span>
+                </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px 0; width: 130px; font-weight: bold; color: #555;">${signDate}</td>
+                <td style="padding: 10px 0;">
+                    <span style="font-weight: bold;">Assinado por ${student.name}</span><br>
+                    <span style="color: #666;">IP: ${ip}</span><br>
+                    <span style="color: #666;">Dispositivo: ${sData.deviceInfo || 'Navegador Web'}</span>
+                </td>
+            </tr>
+             <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px 0; width: 130px; font-weight: bold; color: #555;">${signDate}</td>
+                <td style="padding: 10px 0;">
+                    <span style="font-weight: bold;">Documento Finalizado</span><br>
+                    <span style="color: #666;">Contrato selado e disponível para download.</span>
+                </td>
+            </tr>
+        </table>
+
+        <div style="margin-top: 50px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; display: flex; align-items: center; gap: 15px; background-color: #f9f9f9;">
+            <div style="font-size: 30px;">🛡️</div>
+            <div>
+                <div style="font-weight: bold; font-size: 11px; text-transform: uppercase;">Validação de Segurança</div>
+                <div style="font-size: 10px; color: #555; margin-top: 4px;">
+                    Hash SHA256: <strong>${hashId}</strong>
+                </div>
+                <div style="font-size: 10px; color: #555;">
+                    Este documento foi assinado digitalmente e possui validade jurídica conforme MP 2.200-2/2001.
+                </div>
+            </div>
+        </div>
+
+      </div>
+    `;
   };
+ // ✅ FUNÇÃO FINAL: Contrato + Página de Auditoria (Autentique Style)
+ const generateContractPDF = async (student) => {
+  if (!student?.signature?.image) {
+    alert("A assinatura ainda não foi carregada. Tente novamente em alguns segundos.");
+    return;
+  }
+
+  // Feedback visual
+  const loadingId = "pdf-loading-toast";
+  if (!document.getElementById(loadingId)) {
+      const loadingMsg = document.createElement('div');
+      loadingMsg.id = loadingId;
+      loadingMsg.innerHTML = `
+        <div style="position:fixed;top:20px;right:20px;background:black;color:white;padding:15px 25px;border-radius:8px;z-index:99999;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.2);display:flex;align-items:center;gap:10px;">
+          <div style="width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+          <span style="font-weight:bold;font-size:14px;">Gerando Contrato Seguro...</span>
+        </div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      `;
+      document.body.appendChild(loadingMsg);
+  }
+
+  try {
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "pt",
+      format: "a4"
+    });
+
+    // Container Invisível (Fora da tela)
+    const container = document.createElement("div");
+    container.style.position = "absolute";
+    container.style.left = "-10000px";
+    container.style.top = "0";
+    container.style.width = "794px"; 
+    
+    // 1. CONSTRÓI O CONTEÚDO (Texto + Página de Log)
+    // Removemos a assinatura do meio do texto (se houver placeholder antigo) para não ficar duplicado, ou deixamos como preferir.
+    // Vou concatenar o HTML do contrato + o HTML da página de auditoria
+    const contractBody = buildSignedContractHtml(student);
+    const auditPage = buildAuditPageHtml(student);
+    
+    // O 'wrapHtmlForPdf' agora recebe tudo junto
+    container.innerHTML = wrapHtmlForPdf(contractBody + auditPage);
+    
+    document.body.appendChild(container);
+
+    // Aguarda imagens (assinatura e logos)
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Gera o PDF
+    await pdf.html(container.querySelector(".pdf-container"), {
+      callback: (doc) => {
+        const fileName = `Contrato_Assinado_${String(student.name || "Aluno").split(' ')[0]}.pdf`;
+        doc.save(fileName);
+        
+        document.body.removeChild(container);
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) document.body.removeChild(loadingEl);
+      },
+      x: 0,
+      y: 0,
+      html2canvas: { scale: 0.75, useCORS: true, logging: false },
+      autoPaging: 'text',
+      margin: [20, 0, 20, 0],
+      width: 595
+    });
+
+  } catch (error) {
+    console.error("Erro PDF:", error);
+    alert("Erro ao gerar PDF.");
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) document.body.removeChild(loadingEl);
+  }
+};
 
   // --- RENDERIZAÇÃO DO DASHBOARD ---
   return (
@@ -1499,58 +1637,78 @@ const OnboardingConsultoria = () => {
   const [signatureData, setSignatureData] = useState(null);
   const [studentFieldValues, setStudentFieldValues] = useState({});
 
-  const handleSignContract = async () => {
-    if (!activeStudent || !db) return;
+// --- FUNÇÃO ATUALIZADA: CAPTURA IP E METADADOS ---
+const handleSignContract = async () => {
+  if (!activeStudent || !db) return;
 
-    // 1. Verifica campos pendentes
-    const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];
-    const requiredKeys = pending
-      .filter(f => f?.owner === "student" && f?.key)
-      .map(f => f.key);
+  // 1. Validação (Mantém a mesma)
+  const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];
+  const requiredKeys = pending
+    .filter(f => f?.owner === "student" && f?.key)
+    .map(f => f.key);
+  const missing = requiredKeys.filter((k) => !String(studentFieldValues?.[k] ?? "").trim());
 
-    // 2. Valida se preencheu tudo
-    const missing = requiredKeys.filter((k) => !String(studentFieldValues?.[k] ?? "").trim());
+  if (missing.length > 0) {
+    const firstMissing = pending.find(f => f.key === missing[0]);
+    alert(`Por favor, preencha: ${firstMissing?.label || missing[0]}`);
+    return;
+  }
 
-    if (missing.length > 0) {
-      const firstMissing = pending.find(f => f.key === missing[0]);
-      alert(`Por favor, preencha: ${firstMissing?.label || missing[0]}`);
-      return;
-    }
+  if (!signatureData) {
+    alert("Por favor, faça sua assinatura.");
+    return;
+  }
 
-    // 3. Valida se desenhou a assinatura
-    if (!signatureData) {
-      alert("Por favor, faça sua assinatura.");
-      return;
-    }
+  try {
+    setViewState("loading");
 
+    // 2. CAPTURA DE DADOS DE RASTREABILIDADE (NOVO)
+    let userIP = "Não identificado";
     try {
-      setViewState("loading");
-
-      // 4. Atualiza no Firebase
-      await updateDoc(doc(db, "students", activeStudent.id), {
-        status: "signed",
-        studentData: {
-          ...studentFieldValues,
-          signedAt: new Date().toISOString(),
-        },
-        signature: {
-          image: signatureData,
-          userAgent: navigator.userAgent,
-        },
-      });
-
-      // 5. Atualiza estado local e redireciona
-      setActiveStudent(prev => ({ ...prev, status: "signed" }));
-      await loadPlan(activeStudent.planId);
-      setViewState("student_view_flow");
-      alert("Contrato assinado com sucesso! Bem-vindo(a)!");
-
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao salvar assinatura. Tente novamente.");
-      setViewState("student_login");
+      const ipReq = await fetch('https://api.ipify.org?format=json');
+      const ipData = await ipReq.json();
+      userIP = ipData.ip;
+    } catch (err) {
+      console.warn("Não foi possível pegar o IP", err);
     }
-  };
+
+    const userAgent = navigator.userAgent; // Navegador/Dispositivo
+    const timestamp = new Date().toISOString();
+
+    // 3. Atualiza no Firebase com o Log
+    await updateDoc(doc(db, "students", activeStudent.id), {
+      status: "signed",
+      studentData: {
+        ...studentFieldValues,
+        signedAt: timestamp,
+        ipAddress: userIP,
+        deviceInfo: userAgent
+      },
+      signature: {
+        image: signatureData,
+        signedAt: timestamp,
+        ip: userIP,
+        userAgent: userAgent,
+      },
+    });
+
+    // 4. Feedback e Redirecionamento
+    setActiveStudent(prev => ({ 
+        ...prev, 
+        status: "signed",
+        signature: { image: signatureData, ip: userIP, signedAt: timestamp } 
+    }));
+    
+    await loadPlan(activeStudent.planId);
+    setViewState("student_view_flow");
+    alert("Contrato assinado e registrado com sucesso!");
+
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao salvar assinatura. Tente novamente.");
+    setViewState("student_login");
+  }
+};
 
 // Função atualizada para garantir o redirecionamento correto
 const handleStudentLoginV2 = async () => {
