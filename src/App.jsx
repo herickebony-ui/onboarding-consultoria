@@ -2112,7 +2112,8 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
           </header>
         )}
 {/* --- BOTÃO EXCLUSIVO DO MODO TESTE (PARA VOLTAR AO EDITOR) --- */}
-{viewState === 'student_view_legacy' && (
+{/* CORREÇÃO: Adicionado && isAdminAccess para garantir que alunos não vejam este botão */}
+{viewState === 'student_view_legacy' && isAdminAccess && (
   <div className="fixed bottom-24 right-4 z-[9999] animate-in fade-in slide-in-from-right">
     <button
       onClick={() => setViewState('editor')}
