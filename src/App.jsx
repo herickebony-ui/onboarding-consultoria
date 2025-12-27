@@ -12,7 +12,8 @@ import {
 } from 'lucide-react';
 
 import { jsPDF } from "jspdf";
-
+// --- ASSINATURA DA EMPRESA (FIXA) ---
+const COMPANY_SIGNATURE_URL = "https://i.imgur.com/K7u9k5B.png";
 // --- ⚠️ CONFIGURAÇÃO DO FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyDiLbc_PiVR1EVoLRJlZvNZYSMxb2rEE54",
@@ -322,29 +323,20 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
   );
 };
 
-// --- COMPONENTE DE ASSINATURA PROFISSIONAL (CORRIGIDO) ---
+// --- COMPONENTE DE ASSINATURA V3 (MOBILE PRECISION FIX) ---
 const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
-  // Helper: Pega a posição exata (Mouse ou Toque) relativa ao Canvas
-  const getCoordinates = (event) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-
+  // Função para pegar a posição EXATA do toque/mouse relativa ao canvas
+  const getEventPos = (canvas, e) => {
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;   // Fator de escala Horizontal
-    const scaleY = canvas.height / rect.height; // Fator de escala Vertical
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-    let clientX, clientY;
-
-    if (event.touches && event.touches.length > 0) {
-      clientX = event.touches[0].clientX;
-      clientY = event.touches[0].clientY;
-    } else {
-      clientX = event.clientX;
-      clientY = event.clientY;
-    }
+    // Verifica se é toque ou mouse
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
     return {
       x: (clientX - rect.left) * scaleX,
@@ -352,97 +344,102 @@ const SignaturePad = ({ onSave, onClear }) => {
     };
   };
 
-  // Inicializa o Canvas com Alta Resolução (Retina Display Fix)
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (canvas) {
-      // Pega o tamanho visual do elemento pai
-      const parentWidth = canvas.parentElement.offsetWidth;
-      const height = 250; // Altura fixa confortável
+    if (!canvas) return;
 
-      // Define a resolução interna (aumenta pixels para nitidez)
-      const ratio = window.devicePixelRatio || 1;
-      canvas.width = parentWidth * ratio;
-      canvas.height = height * ratio;
-
-      // Mantém o tamanho visual correto no CSS
-      canvas.style.width = `${parentWidth}px`;
-      canvas.style.height = `${height}px`;
-
-      // Configura o contexto 2D
-      const ctx = canvas.getContext('2d');
-      ctx.scale(ratio, ratio); // Escala para desenhar no tamanho certo
-      ctx.lineWidth = 2.5;     // Traço um pouco mais grosso
-      ctx.lineCap = 'round';   // Pontas arredondadas
-      ctx.lineJoin = 'round';  // Junções arredondadas
-      ctx.strokeStyle = '#000';
-    }
-  }, []); // Roda 1 vez ao montar
-
-  const startDrawing = (e) => {
-    // Evita scroll em alguns navegadores antigos, mas o CSS touch-action resolve 99%
-    if (e.cancelable) e.preventDefault(); 
+    // Configuração de Alta Resolução (Retina)
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+    canvas.width = canvas.offsetWidth * ratio;
+    canvas.height = canvas.offsetHeight * ratio;
     
-    setIsDrawing(true);
-    const { x, y } = getCoordinates(e);
-    const ctx = canvasRef.current.getContext('2d');
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
+    const ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#000000'; // Preto absoluto
 
-  const draw = (e) => {
-    if (!isDrawing) return;
-    if (e.cancelable) e.preventDefault(); // Trava scroll nativo do browser
+    // --- FUNÇÕES DE DESENHO (NATIVAS PARA PERFORMANCE) ---
+    // Usamos addEventListener nativo para poder usar { passive: false } e travar o scroll 100%
+    
+    const start = (e) => {
+      e.preventDefault(); // Impede scroll
+      setIsDrawing(true);
+      const { x, y } = getEventPos(canvas, e);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    };
 
-    const { x, y } = getCoordinates(e);
-    const ctx = canvasRef.current.getContext('2d');
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
+    const move = (e) => {
+      e.preventDefault(); // Impede scroll (CRUCIAL NO MOBILE)
+      if (!isDrawing && e.type !== 'touchmove') return; 
+      
+      // No touchmove, não temos "isDrawing" confiável sempre, então validamos se há toques
+      if (e.type === 'touchmove' && e.touches.length === 0) return;
 
-  const stopDrawing = () => {
-    setIsDrawing(false);
-    if (onSave && canvasRef.current) {
-        // Salva a imagem
-        onSave(canvasRef.current.toDataURL("image/png"));
-    }
-  };
+      // Se for mouse e não estiver clicado, para
+      if (e.type === 'mousemove' && e.buttons !== 1) {
+          setIsDrawing(false);
+          return;
+      }
+
+      const { x, y } = getEventPos(canvas, e);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    };
+
+    const end = (e) => {
+      e.preventDefault();
+      setIsDrawing(false);
+      ctx.closePath();
+      if (onSave) onSave(canvas.toDataURL());
+    };
+
+    // Adiciona ouvintes nativos (Mouse e Touch)
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    canvas.addEventListener('mouseup', end);
+    canvas.addEventListener('mouseleave', end);
+
+    canvas.addEventListener('touchstart', start, { passive: false });
+    canvas.addEventListener('touchmove', move, { passive: false });
+    canvas.addEventListener('touchend', end);
+
+    // Limpeza ao desmontar
+    return () => {
+      canvas.removeEventListener('mousedown', start);
+      canvas.removeEventListener('mousemove', move);
+      canvas.removeEventListener('mouseup', end);
+      canvas.removeEventListener('mouseleave', end);
+      canvas.removeEventListener('touchstart', start);
+      canvas.removeEventListener('touchmove', move);
+      canvas.removeEventListener('touchend', end);
+    };
+  }, [onSave]); // Recria apenas se onSave mudar
 
   const clear = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    // Limpa considerando o tamanho real (com pixel ratio)
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (onClear) onClear();
   };
 
   return (
-    <div className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner select-none">
+    <div className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner select-none touch-none">
       <canvas
         ref={canvasRef}
-        
-        // Eventos de Mouse
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
-        
-        // Eventos de Toque (Mobile)
-        onTouchStart={startDrawing}
-        onTouchMove={draw}
-        onTouchEnd={stopDrawing}
-        
-        className="w-full bg-white cursor-crosshair block"
         style={{ 
+            width: '100%', 
             height: '250px',
-            // MÁGICA DO MOBILE: Isso diz ao navegador "NÃO role a tela se tocar aqui"
-            touchAction: 'none' 
+            touchAction: 'none', // Trava CSS extra
+            display: 'block'
         }}
       />
       <div className="bg-gray-50 p-2 border-t border-gray-200 flex justify-between items-center px-4">
-        <span className="text-[10px] text-gray-400">Assine dentro da área acima</span>
+        <span className="text-[10px] text-gray-400">Assine com o dedo no espaço acima</span>
         <button onClick={clear} className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1.5 rounded transition-colors uppercase tracking-wide">
-            Limpar Assinatura
+            Apagar e Refazer
         </button>
       </div>
     </div>
@@ -764,93 +761,85 @@ const handleGenerateDraft = () => {
     }
     return html;
   };
-  // --- GERADOR DA PÁGINA DE LOG (ESTILO AUTENTIQUE) ---
+  // --- GERADOR DA PÁGINA DE LOG (CORRIGIDO E LIMPO) ---
   const buildAuditPageHtml = (student) => {
     const sData = student.studentData || {};
     const signDate = sData.signedAt ? new Date(sData.signedAt).toLocaleString('pt-BR') : 'Data n/d';
     const createdDate = student.createdAt ? new Date(student.createdAt).toLocaleString('pt-BR') : 'Data n/d';
     const ip = sData.ipAddress || "IP não registrado";
     const docId = student.id;
-    
-    // Hash Fictício para dar autoridade visual (ou use o ID do documento)
     const hashId =  docId.split('').reverse().join('') + "ab9"; 
 
     return `
       <div class="page-break" style="padding-top: 40px; font-family: sans-serif; color: #333;">
         
-        <div style="border-bottom: 1px solid #ccc; padding-bottom: 20px; margin-bottom: 40px; display: flex; justify-content: space-between; align-items: center;">
-           <div style="font-weight: bold; font-size: 24px; color: #000;">Team Ebony</div>
-           <div style="text-align: right; font-size: 10px; color: #666;">
-              Autenticação eletrônica<br>
-              Data e hora: ${signDate}<br>
-              ID do Documento: ${docId}
-           </div>
-        </div>
-
-        <h2 style="text-align: center; font-size: 18px; margin-bottom: 50px;">Página de Assinaturas</h2>
-
-        <div style="display: flex; justify-content: space-around; margin-bottom: 60px;">
-            
-            <div style="text-align: center; width: 45%;">
-                ${student.signature?.image 
-                  ? `<img src="${student.signature.image}" style="width: 150px; height: auto; display: block; margin: 0 auto 10px auto;" />` 
-                  : '<div style="height: 50px;"></div>'}
-                <div style="border-top: 1px solid #000; padding-top: 5px;">
-                    <div style="font-weight: bold; font-size: 14px;">${student.name}</div>
-                    <div style="font-size: 12px; color: #555;">CPF: ${sData.cpf || 'Não informado'}</div>
-                    <div style="font-size: 12px; color: #555;">Signatário (Aluno)</div>
-                </div>
-            </div>
-
-            <div style="text-align: center; width: 45%;">
-                <div style="height: 45px; display:flex; align-items:end; justify-content:center; font-family: 'Brush Script MT', cursive; font-size: 20px; color: #333;">
-                   Team Ebony Assinatura
-                </div>
-                <div style="border-top: 1px solid #000; padding-top: 5px;">
-                    <div style="font-weight: bold; font-size: 14px;">Consultoria Team Ebony</div>
-                    <div style="font-size: 12px; color: #555;">Contratada</div>
-                </div>
-            </div>
-        </div>
-
-        <h3 style="font-size: 14px; border-bottom: 2px solid #333; padding-bottom: 5px; margin-bottom: 20px;">HISTÓRICO DE AUDITORIA</h3>
-        
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 10px 0; width: 130px; font-weight: bold; color: #555;">${createdDate}</td>
-                <td style="padding: 10px 0;">
-                    <span style="font-weight: bold;">Documento Criado</span><br>
-                    <span style="color: #666;">Gerado pelo sistema Team Ebony.</span>
+        <table style="width: 100%; border-bottom: 2px solid #000; margin-bottom: 30px;">
+            <tr>
+                <td style="vertical-align: bottom; padding-bottom: 10px;">
+                    <div style="font-weight: 900; font-size: 28px; color: #000; text-transform: uppercase;">Team Ebony</div>
+                    <div style="font-size: 10px; color: #555; margin-top: 5px;">Nutrição, Treinamento & Performance</div>
                 </td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 10px 0; width: 130px; font-weight: bold; color: #555;">${signDate}</td>
-                <td style="padding: 10px 0;">
-                    <span style="font-weight: bold;">Assinado por ${student.name}</span><br>
-                    <span style="color: #666;">IP: ${ip}</span><br>
-                    <span style="color: #666;">Dispositivo: ${sData.deviceInfo || 'Navegador Web'}</span>
-                </td>
-            </tr>
-             <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 10px 0; width: 130px; font-weight: bold; color: #555;">${signDate}</td>
-                <td style="padding: 10px 0;">
-                    <span style="font-weight: bold;">Documento Finalizado</span><br>
-                    <span style="color: #666;">Contrato selado e disponível para download.</span>
+                <td style="text-align: right; vertical-align: bottom; padding-bottom: 10px; font-size: 9px; color: #666;">
+                    <strong>Autenticação Eletrônica</strong><br>
+                    ID: ${docId}<br>
+                    Data: ${signDate}
                 </td>
             </tr>
         </table>
 
-        <div style="margin-top: 50px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; display: flex; align-items: center; gap: 15px; background-color: #f9f9f9;">
-            <div style="font-size: 30px;">🛡️</div>
-            <div>
-                <div style="font-weight: bold; font-size: 11px; text-transform: uppercase;">Validação de Segurança</div>
-                <div style="font-size: 10px; color: #555; margin-top: 4px;">
-                    Hash SHA256: <strong>${hashId}</strong>
-                </div>
-                <div style="font-size: 10px; color: #555;">
-                    Este documento foi assinado digitalmente e possui validade jurídica conforme MP 2.200-2/2001.
-                </div>
-            </div>
+        <h2 style="text-align: center; font-size: 16px; margin-bottom: 40px; text-transform: uppercase; letter-spacing: 2px;">Folha de Assinaturas</h2>
+
+        <table style="width: 100%; margin-bottom: 50px;">
+            <tr>
+                <td style="width: 45%; text-align: center; vertical-align: bottom;">
+                    ${student.signature?.image 
+                      ? `<img src="${student.signature.image}" style="width: 140px; height: auto; display: block; margin: 0 auto 5px auto;" />` 
+                      : '<div style="height: 60px;"></div>'}
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin: 0 20px;">
+                        <div style="font-weight: bold; font-size: 12px;">${student.name}</div>
+                        <div style="font-size: 10px; color: #555;">CPF: ${sData.cpf || 'Não informado'}</div>
+                        <div style="font-size: 10px; color: #555;">ALUNO (CONTRATANTE)</div>
+                    </div>
+                </td>
+
+                <td style="width: 45%; text-align: center; vertical-align: bottom;">
+                    <img src="${COMPANY_SIGNATURE_URL}" style="width: 140px; height: auto; display: block; margin: 0 auto 5px auto;" />
+                    
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin: 0 20px;">
+                        <div style="font-weight: bold; font-size: 12px;">Hérick Ebony</div>
+                        <div style="font-size: 10px; color: #555;">Team Ebony</div>
+                        <div style="font-size: 10px; color: #555;">CONTRATADA</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #eee;">
+            <h3 style="font-size: 12px; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 15px; text-transform: uppercase;">Trilha de Auditoria</h3>
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+                <tr>
+                    <td style="padding: 5px 0; width: 120px; font-weight: bold; color: #333;">${createdDate}</td>
+                    <td style="padding: 5px 0;">
+                        <strong>Criação do Documento</strong><br>
+                        <span style="color: #666;">Gerado pelo sistema Team Ebony.</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px 0; font-weight: bold; color: #333;">${signDate}</td>
+                    <td style="padding: 10px 0;">
+                        <strong>Assinatura do Aluno</strong><br>
+                        <span style="color: #666;">IP: ${ip}</span><br>
+                        <span style="color: #666;">Dispositivo: ${sData.deviceInfo || 'Navegador Web'}</span>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <div style="margin-top: 30px; text-align: center; font-size: 9px; color: #888; border-top: 1px dashed #ccc; padding-top: 10px;">
+            <div style="font-weight: bold; font-size: 10px; color: #000; margin-bottom: 4px;">VALIDAÇÃO DE SEGURANÇA DIGITAL</div>
+            Hash SHA256: ${hashId}<br>
+            Este documento possui validade jurídica conforme MP 2.200-2/2001.
         </div>
 
       </div>
