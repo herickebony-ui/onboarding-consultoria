@@ -1022,6 +1022,7 @@ const OnboardingConsultoria = () => {
   const [isIndexOpen, setIsIndexOpen] = useState(false);
   const [pendingJumpIndex, setPendingJumpIndex] = useState(null);
   const [showOrderWarning, setShowOrderWarning] = useState(false);
+  const [showOrderHint, setShowOrderHint] = useState(false);
 
   const jumpToStep = (idx) => {
     // mesma etapa: só fecha
@@ -1034,6 +1035,7 @@ const OnboardingConsultoria = () => {
     if (idx > currentStep + 1) {
       setPendingJumpIndex(idx);
       setShowOrderWarning(true);
+      setShowOrderHint(true); // mostra a faixa amarela
       return;
     }
 
@@ -1047,6 +1049,7 @@ const OnboardingConsultoria = () => {
       setShowOrderWarning(false);
       return;
     }
+    setShowOrderHint(true);
     setCurrentStep(pendingJumpIndex);
     setPendingJumpIndex(null);
     setShowOrderWarning(false);
@@ -1858,10 +1861,17 @@ const renderStepContent = (step) => (
       </div>
     )}
     {/* --- FIM DA MUDANÇA --- */}
-
-    {(step.type === 'text' || step.type === 'welcome') && step.link && (
-      <a href={formatUrl(step.link)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:underline font-medium mt-4">{step.buttonText || "Acessar Link"} <ExternalLink className="w-4 h-4"/></a>
+    {(step.type === 'text' || step.type === 'welcome') && (step.linkExtra || step.link) && (
+      <a
+        href={formatUrl(step.linkExtra || step.link)}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-blue-600 hover:underline font-medium mt-4"
+      >
+        {step.buttonText || "Acessar Link"} <ExternalLink className="w-4 h-4" />
+      </a>
     )}
+
     {step.type === 'pdf' && (
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mt-6">
         <div className="flex items-center gap-3 mb-4"><div className="p-2 bg-red-100 text-red-600 rounded-lg"><FileText className="w-6 h-6" /></div><div><h3 className="font-bold text-gray-900">Arquivo para Download</h3><p className="text-sm text-gray-500">{step.pdfName || "Documento PDF"}</p></div></div>
@@ -1908,7 +1918,7 @@ const renderStepContent = (step) => (
       </div></div>
     )}
     {step.type === 'video' && (
-      <><div className="relative bg-gray-900 aspect-video rounded-xl overflow-hidden flex items-center justify-center group cursor-pointer shadow-lg mt-6"><div className="absolute inset-0 bg-black/40"></div><Play className="w-16 h-16 text-white opacity-90 relative z-10" /><p className="absolute bottom-4 left-4 text-white font-medium text-sm z-10">Vídeo Explicativo</p>{step.link && <a href={formatUrl(step.link)} target="_blank" rel="noreferrer" className="absolute inset-0 z-20"></a>}</div>{step.buttonText && <a href={formatUrl(step.link)} target="_blank" rel="noreferrer" className="block w-full text-center py-3 bg-blue-600 text-white rounded-lg font-bold mt-4">{step.buttonText}</a>}</>
+      <><div className="relative bg-gray-900 aspect-video rounded-xl overflow-hidden flex items-center justify-center group cursor-pointer shadow-lg mt-6"><div className="absolute inset-0 bg-black/40"></div><Play className="w-16 h-16 text-white opacity-90 relative z-10" /><p className="absolute bottom-4 left-4 text-white font-medium text-sm z-10">Vídeo Explicativo</p>{step.step.videoUrl || step.link && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="absolute inset-0 z-20"></a>}</div>{step.buttonText && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="block w-full text-center py-3 bg-blue-600 text-white rounded-lg font-bold mt-4">{step.buttonText}</a>}</>
     )}
   </div>
 );
@@ -2038,6 +2048,22 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
         </button>
       </div>
     </div>
+  </div>
+)}
+{/* BADGES (só no aluno) */}
+{viewState !== 'editor' && !isCompleted && (
+  <div className="max-w-6xl mx-auto px-4 pt-4 space-y-2">
+    {currentStep === 0 && (
+      <div className="inline-flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-1 text-xs text-gray-700 shadow-sm">
+        <span className="font-bold">Tempo estimado:</span> 3–5 min
+      </div>
+    )}
+
+    {showOrderHint && (
+      <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-xl px-4 py-2 text-xs font-bold">
+        Recomendado seguir a ordem
+      </div>
+    )}
   </div>
 )}
 
@@ -2341,7 +2367,7 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                         </div>
                       </div>  
                     )}
-                    {(step.type === 'text' || step.type === 'boas-vindas') && (
+                    {(step.type === 'text' || step.type === 'welcome') && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                         <div>
                           <label className="text-xs font-bold uppercase mb-1">Link Extra</label>
