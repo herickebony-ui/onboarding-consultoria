@@ -1018,6 +1018,46 @@ const OnboardingConsultoria = () => {
 
   const [steps, setSteps] = useState(defaultSteps);
   const [currentStep, setCurrentStep] = useState(0);
+  // --- ÍNDICE (ALUNO) + AVISO DE ORDEM ---
+  const [isIndexOpen, setIsIndexOpen] = useState(false);
+  const [pendingJumpIndex, setPendingJumpIndex] = useState(null);
+  const [showOrderWarning, setShowOrderWarning] = useState(false);
+
+  const jumpToStep = (idx) => {
+    // mesma etapa: só fecha
+    if (idx === currentStep) { 
+      setIsIndexOpen(false); 
+      return; 
+    }
+
+    // Se estiver pulando etapas para frente, avisa
+    if (idx > currentStep + 1) {
+      setPendingJumpIndex(idx);
+      setShowOrderWarning(true);
+      return;
+    }
+
+    setCurrentStep(idx);
+    setIsIndexOpen(false);
+    window.scrollTo(0, 0);
+  };
+
+  const confirmJumpAnyway = () => {
+    if (pendingJumpIndex === null) {
+      setShowOrderWarning(false);
+      return;
+    }
+    setCurrentStep(pendingJumpIndex);
+    setPendingJumpIndex(null);
+    setShowOrderWarning(false);
+    setIsIndexOpen(false);
+    window.scrollTo(0, 0);
+  };
+
+  const cancelJump = () => {
+    setPendingJumpIndex(null);
+    setShowOrderWarning(false);
+  };
   const [isCompleted, setIsCompleted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -1902,17 +1942,104 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
               <div>
                 <h1 className="text-sm font-bold text-gray-900 leading-tight">Onboarding</h1>
                 <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
+                {currentStep === 0 && (
+                  <p className="text-[10px] text-gray-400 font-medium">Tempo estimado: 3–5 min</p>
+                )}  
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs font-medium text-gray-500">Etapa {currentStep + 1}/{steps.length}</span>
-              <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-black transition-all duration-500 ease-out" style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}></div>
-              </div>
-            </div>
+      {/* Botão do Índice (ícone apenas, sem texto) */}
+      <button
+        onClick={() => setIsIndexOpen(true)}
+        className="p-2 hover:bg-gray-100 rounded-lg border border-gray-200"
+        title="Abrir índice"
+        aria-label="Abrir índice"
+      >
+        <Layout className="w-4 h-4 text-gray-700" />
+      </button>
+
+      {/* Progresso + Barra (sem números) */}
+      <div className="flex flex-col items-end">
+        <span className="text-[10px] font-bold text-gray-500 uppercase">Progresso</span>
+        <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden mt-1">
+          <div
+            className="h-full bg-black transition-all duration-500 ease-out"
+            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
+          />
+        </div>
+      </div>
+    </div>
+
           </div>
         </header>
       )}
+{/* --- MODAL ÍNDICE (ALUNO) --- */}
+{viewState !== 'editor' && isIndexOpen && (
+  <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+    <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <h3 className="font-bold text-gray-900">Índice</h3>
+        <button
+          onClick={() => setIsIndexOpen(false)}
+          className="p-1 hover:bg-gray-100 rounded-full"
+          aria-label="Fechar"
+        >
+          <X className="w-5 h-5 text-gray-500" />
+        </button>
+      </div>
+
+      <div className="max-h-[60vh] overflow-y-auto p-2">
+        {steps.map((s, i) => (
+          <button
+            key={s.id ?? i}
+            onClick={() => jumpToStep(i)}
+            className={`w-full text-left px-4 py-3 rounded-xl flex items-center justify-between hover:bg-gray-50 ${
+              i === currentStep ? "bg-gray-100" : ""
+            }`}
+          >
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-gray-900 truncate">
+                {s.title || `Etapa ${i + 1}`}
+              </div>
+              {i === currentStep && (
+                <div className="text-[10px] text-gray-500">Você está aqui</div>
+              )}
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
+
+{/* --- MODAL AVISO (PULAR ORDEM) --- */}
+{viewState !== 'editor' && showOrderWarning && (
+  <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+    <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6">
+      <h3 className="text-lg font-bold text-gray-900 mb-2">Recomendado seguir a ordem</h3>
+      <p className="text-sm text-gray-600 mb-6">
+        A gente recomenda seguir as etapas em sequência para não perder nada.
+        Quer ir mesmo assim?
+      </p>
+
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={cancelJump}
+          className="px-4 py-2 rounded-lg font-bold text-gray-600 hover:bg-gray-100"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={confirmJumpAnyway}
+          className="px-4 py-2 rounded-lg font-bold bg-black text-white hover:bg-gray-800"
+        >
+          Ir mesmo assim
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
 {/* CONTEÚDO PRINCIPAL */}
 <main className={`max-w-6xl mx-auto px-4 py-8 ${viewState === 'editor' ? 'max-w-4xl' : ''}`}>
