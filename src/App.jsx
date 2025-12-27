@@ -69,7 +69,60 @@ const buildMapsUrl = (value) => {
   // Se for texto/endereço, cria busca do Google Maps
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(txt)}`;
 };
-        
+   // ✅ NOVO COMPONENTE GLOBAL: Player de Vídeo Inteligente
+const VideoPlayerGlobal = ({ url }) => {
+  if (!url) return null;
+  const cleanUrl = url.trim();
+
+  // 1. YouTube (Suporta links curtos, longos e embeds)
+  const ytMatch = cleanUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
+  if (ytMatch) {
+    return (
+      <iframe
+        className="w-full h-full"
+        src={`https://www.youtube.com/embed/${ytMatch[1]}?rel=0`}
+        title="YouTube video"
+        frameBorder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
+    );
+  }
+
+  // 2. Vimeo
+  const vimeoMatch = cleanUrl.match(/vimeo\.com\/(\d+)/);
+  if (vimeoMatch) {
+    return (
+      <iframe
+        className="w-full h-full"
+        src={`https://player.vimeo.com/video/${vimeoMatch[1]}`}
+        title="Vimeo video"
+        frameBorder="0"
+        allow="autoplay; fullscreen; picture-in-picture"
+        allowFullScreen
+      />
+    );
+  }
+
+  // 3. Vídeo Direto (.mp4, .webm, etc)
+  if (cleanUrl.match(/\.(mp4|webm|ogg)$/i)) {
+    return (
+      <video className="w-full h-full" controls>
+        <source src={cleanUrl} />
+        Seu navegador não suporta este vídeo.
+      </video>
+    );
+  }
+
+  // 4. Fallback (Se não for vídeo reconhecido, mostra link)
+  return (
+    <div className="flex items-center justify-center h-full bg-gray-100 text-gray-500">
+      <a href={cleanUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 underline">
+        <ExternalLink className="w-4 h-4" /> Abrir Link do Vídeo
+      </a>
+    </div>
+  );
+};     
     const wrapHtmlForPdf = (innerHtml) => `
     <style>
       @page { size: A4; margin: 0; }
@@ -1023,6 +1076,8 @@ const OnboardingConsultoria = () => {
   const [pendingJumpIndex, setPendingJumpIndex] = useState(null);
   const [showOrderWarning, setShowOrderWarning] = useState(false);
   const [showOrderHint, setShowOrderHint] = useState(false);
+  const [isVideoOpen, setIsVideoOpen] = useState(false);
+  const [videoEmbedUrl, setVideoEmbedUrl] = useState("");
 
   const jumpToStep = (idx) => {
     // mesma etapa: só fecha
@@ -1030,7 +1085,43 @@ const OnboardingConsultoria = () => {
       setIsIndexOpen(false); 
       return; 
     }
-
+    const getYoutubeEmbedUrl = (url) => {
+      if (!url) return "";
+    
+      // youtu.be/ID
+      let match = url.match(/youtu\.be\/([a-zA-Z0-9_-]{6,})/);
+      if (match?.[1]) return `https://www.youtube.com/embed/${match[1]}`;
+    
+      // watch?v=ID
+      match = url.match(/[?&]v=([a-zA-Z0-9_-]{6,})/);
+      if (match?.[1]) return `https://www.youtube.com/embed/${match[1]}`;
+    
+      // shorts/ID
+      match = url.match(/shorts\/([a-zA-Z0-9_-]{6,})/);
+      if (match?.[1]) return `https://www.youtube.com/embed/${match[1]}`;
+    
+      // embed/ID
+      match = url.match(/embed\/([a-zA-Z0-9_-]{6,})/);
+      if (match?.[1]) return `https://www.youtube.com/embed/${match[1]}`;
+    
+      return "";
+    };
+    
+    const openVideoModal = (youtubeUrl) => {
+      const embed = getYoutubeEmbedUrl(youtubeUrl);
+      if (!embed) {
+        // se não for link válido, abre normal
+        window.open(youtubeUrl, "_blank");
+        return;
+      }
+      setVideoEmbedUrl(`${embed}?autoplay=1&rel=0`);
+      setIsVideoOpen(true);
+    };
+    
+    const closeVideoModal = () => {
+      setIsVideoOpen(false);
+      setVideoEmbedUrl(""); // mata o vídeo pra parar o som
+    };    
     // Se estiver pulando etapas para frente, avisa
     if (idx > currentStep + 1) {
       setPendingJumpIndex(idx);
@@ -1918,7 +2009,24 @@ const renderStepContent = (step) => (
       </div></div>
     )}
     {step.type === 'video' && (
-      <><div className="relative bg-gray-900 aspect-video rounded-xl overflow-hidden flex items-center justify-center group cursor-pointer shadow-lg mt-6"><div className="absolute inset-0 bg-black/40"></div><Play className="w-16 h-16 text-white opacity-90 relative z-10" /><p className="absolute bottom-4 left-4 text-white font-medium text-sm z-10">Vídeo Explicativo</p>{(step.videoUrl || step.link) && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="absolute inset-0 z-20"></a>}</div>{step.buttonText && <a href={formatUrl(step.videoUrl || step.link)} target="_blank" rel="noreferrer" className="block w-full text-center py-3 bg-blue-600 text-white rounded-lg font-bold mt-4">{step.buttonText}</a>}</>
+      <div className="mt-6">
+        <div className="relative bg-black aspect-video rounded-xl overflow-hidden shadow-lg border border-gray-200">
+          {/* Usa o componente global que criamos */}
+          <VideoPlayerGlobal url={step.videoUrl || step.link} />
+        </div>
+        
+        {/* Botão de ação opcional abaixo do vídeo */}
+        {step.buttonText && (
+          <a 
+            href={formatUrl(step.videoUrl || step.link)} 
+            target="_blank" 
+            rel="noreferrer" 
+            className="block w-full text-center py-3 bg-blue-600 text-white rounded-lg font-bold mt-4 hover:bg-blue-700 transition-colors"
+          >
+            {step.buttonText}
+          </a>
+        )}
+      </div>
     )}
   </div>
 );
@@ -1988,7 +2096,7 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
   <div className="fixed left-4 top-[75px] z-50">
     <button
       onClick={() => setIsIndexOpen((v) => !v)}
-      className="w-11 h-11 flex items-center justify-center rounded-xl border border-gray-200 bg-white hover:bg-gray-50 shadow-md"
+      className="w-11 h-11 flex items-center justify-center rounded-xl border border-gray-200 bg-white/55 backdrop-blur-md hover:bg-white/90 shadow-md"
       title="Abrir índice"
       aria-label="Abrir índice"
     >
@@ -2036,6 +2144,42 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
             <ChevronRight className="w-4 h-4 text-gray-400" />
           </button>
         ))}
+      </div>
+    </div>
+  </div>
+)}
+{/* --- MODAL VÍDEO (YOUTUBE EMBED) --- */}
+{viewState !== 'editor' && isVideoOpen && (
+  <div
+    className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4"
+    onClick={closeVideoModal}
+  >
+    <div
+      className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <h3 className="font-bold text-gray-900">Vídeo</h3>
+        <button
+          onClick={closeVideoModal}
+          className="p-1 hover:bg-gray-100 rounded-full"
+          aria-label="Fechar vídeo"
+        >
+          <X className="w-5 h-5 text-gray-500" />
+        </button>
+      </div>
+
+      <div className="p-3">
+        <div className="relative w-full pt-[56.25%] rounded-xl overflow-hidden bg-black">
+          <iframe
+            className="absolute inset-0 w-full h-full"
+            src={videoEmbedUrl}
+            title="Vídeo explicativo"
+            frameBorder="0"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
       </div>
     </div>
   </div>
