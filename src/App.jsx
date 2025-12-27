@@ -1954,19 +1954,23 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
                 <p className="text-[10px] text-gray-500 font-medium">{coachName}</p>
                 {currentStep === 0 && (
                   <p className="text-[10px] text-gray-400 font-medium">Tempo estimado: 3–5 min</p>
-                )}  
+                )}
+                {/* ÍNDICE (abaixo do Tempo estimado / abaixo do ON) */}
+                <button
+                  onClick={() => setIsIndexOpen(true)}
+                  className="mt-2 inline-flex items-center justify-center p-2 rounded-lg border border-gray-200 hover:bg-gray-100 w-fit"
+                  title="Abrir índice"
+                  aria-label="Abrir índice"
+                >
+                  <span className="flex flex-col gap-1">
+                    <span className="block w-10 h-1 bg-gray-800 rounded-full"></span>
+                    <span className="block w-10 h-1 bg-gray-800 rounded-full"></span>
+                    <span className="block w-10 h-1 bg-gray-800 rounded-full"></span>
+                  </span>
+                </button>
               </div>
             </div>
             <div className="flex items-center gap-3">
-      {/* Botão do Índice (ícone apenas, sem texto) */}
-      <button
-        onClick={() => setIsIndexOpen(true)}
-        className="p-2 hover:bg-gray-100 rounded-lg border border-gray-200"
-        title="Abrir índice"
-        aria-label="Abrir índice"
-      >
-        <Layout className="w-4 h-4 text-gray-700" />
-      </button>
 
       {/* Progresso + Barra (sem números) */}
       <div className="flex flex-col items-end">
