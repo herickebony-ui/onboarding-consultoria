@@ -1820,53 +1820,91 @@ if (viewState === 'editor' || viewState === 'student_view_flow' || viewState ===
         </header>
       )}
 
-      {/* CONTEÚDO PRINCIPAL */}
-      <main className={`max-w-6xl mx-auto px-4 py-8 ${viewState === 'editor' ? 'max-w-4xl' : ''}`}>
-        {viewState === 'editor' ? (
-          <div className="space-y-8">
-            {/* Seção 1: Configurações Gerais */}
-            <section className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <Settings className="w-4 h-4" /> Configurações Gerais
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Consultoria</label>
-                  <input type="text" value={coachName} onChange={(e) => setCoachName(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"/>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Link do WhatsApp (Final)</label>
-                  <input type="text" value={whatsappLink} onChange={(e) => setWhatsappLink(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"/>
-                </div>
-              </div>
-            </section>
+{/* CONTEÚDO PRINCIPAL */}
+<main className={`max-w-6xl mx-auto px-4 py-8 ${viewState === 'editor' ? 'max-w-4xl' : ''}`}>
+              {viewState === 'editor' ? (
+                <div className="space-y-8"> {/* Container Principal do Editor */}
+                  
+                  {/* Seção 1: Configurações Gerais */}
+                  <div className="bg-gray-50 rounded-xl border border-gray-300 shadow-md overflow-hidden">
+                    <div className="bg-[#850000] p-4 border-b border-[#850000]/30 flex items-center gap-3">
+                      <Settings className="w-5 h-5 text-white" />
+                      <h3 className="text-lg font-black text-white uppercase tracking-wide">
+                        Configurações Gerais
+                      </h3>
+                    </div>
 
-            {/* Seção 2: Página Final */}
-            <section className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4" /> Configurações da Página Final
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
-                  <input type="text" value={finalTitle} onChange={(e) => setFinalTitle(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md outline-none"/>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Texto Botão</label>
-                  <input type="text" value={finalButtonText} onChange={(e) => setFinalButtonText(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md outline-none"/>
-                </div>
-              </div>
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mensagem</label>
-                <textarea value={finalMessage} onChange={(e) => setFinalMessage(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md outline-none resize-none"/>
-              </div>
-            </section>
+                    <div className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Consultoria</label>
+                          <input 
+                            type="text" 
+                            value={coachName} 
+                            onChange={(e) => setCoachName(e.target.value)} 
+                            className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-rose-900 outline-none transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Link do WhatsApp (Final)</label>
+                          <input 
+                            type="text" 
+                            value={whatsappLink} 
+                            onChange={(e) => setWhatsappLink(e.target.value)} 
+                            className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-rose-900 outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
-            {/* Seção 3: Etapas do Fluxo */}
-            <div className="space-y-4">
-              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                <Layout className="w-4 h-4" /> Etapas do Fluxo ({steps.length})
-              </h2>
+                  {/* Seção 2: Configurações da Página Final */}
+                  <div className="bg-gray-50 rounded-xl border border-gray-300 shadow-md overflow-hidden">
+                    <div className="bg-[#850000] p-4 border-b border-[#850000] flex items-center gap-3">
+                      <CheckCircle className="w-5 h-5 text-white" />
+                      <h3 className="text-lg font-black text-white uppercase tracking-wide">
+                        Configurações da Página Final
+                      </h3>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                          <input 
+                            type="text" 
+                            value={finalTitle} 
+                            onChange={(e) => setFinalTitle(e.target.value)} 
+                            className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-rose-900 outline-none transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Texto do Botão</label>
+                          <input 
+                            type="text" 
+                            value={finalButtonText || ''} 
+                            onChange={(e) => setFinalButtonText && setFinalButtonText(e.target.value)} 
+                            className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-rose-900 outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Mensagem Final</label>
+                        <textarea 
+                          value={finalMessage || ''} 
+                          onChange={(e) => setFinalMessage && setFinalMessage(e.target.value)} 
+                          rows={3}
+                          className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-rose-900 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Título da Seção de Etapas (Aparece apenas no editor) */}
+                  <div className="space-y-4">
+                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2 mb-4">
+                       <Layout className="w-4 h-4" /> Etapas do Fluxo ({steps.length})
+                    </h2>
 
               {/* --- NAVEGAÇÃO RÁPIDA (Menu "Índice" Inteligente) --- */}
               <div className="group/menu fixed right-2 top-1/2 transform -translate-y-1/2 z-50 flex flex-col gap-6 hidden xl:flex p-4 rounded-2xl hover:bg-gray-50/80 transition-colors">
