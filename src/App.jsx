@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
+import { getFirestore, doc as firestoreDoc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
+import html2canvas from "html2canvas";
 
 // ... mantenha os imports do lucide-react e jsPDF abaixo como estão ...
 import { 
@@ -130,35 +131,42 @@ const VideoPlayerGlobal = ({ url }) => {
     </div>
   );
 };
-    // ✅ ATUALIZADO: CSS ajustado para A4 Real
-    const wrapHtmlForPdf = (innerHtml) => `
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
-      
-      /* Configuração da Página para o motor do PDF */
-      .pdf-container {
-        width: 794px; /* Largura exata A4 em px (96dpi) */
-        min-height: 1123px;
-        padding: 40px 60px; /* Margens internas confortáveis */
-        background: white;
-        font-family: 'Times New Roman', serif; /* Fonte padrão de contrato */
-        font-size: 14px; /* Tamanho legível */
-        color: #000;
-        line-height: 1.5;
-        text-align: justify;
-      }
+// ✅ CSS ATUALIZADO V8: FIM DO ENCAVALAMENTO + FONTE SEGURA
+const wrapHtmlForPdf = (innerHtml) => `
+<style>
+  * { box-sizing: border-box; }
 
-      /* Garante que imagens (assinatura) não estouram */
-      img { max-width: 100%; height: auto; }
-      
-      /* Força quebra de página limpa se necessário */
-      .page-break { page-break-before: always; }
-    </style>
+  .pdf-container {
+    width: 794px;
+    padding: 40px 50px;
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    color: #000;
+    line-height: 1.5;
+    text-align: justify;
 
-    <div class="pdf-container">
-      ${innerHtml}
-    </div>
-    `;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .pdf-container h1 { font-size: 18px; margin: 0 0 14px 0; font-weight: 700; }
+  .pdf-container h2 { font-size: 14px; margin: 20px 0 12px 0; font-weight: 700; }
+  .pdf-container h3 { font-size: 13px; margin: 18px 0 10px 0; font-weight: 700; }
+
+  .pdf-container p { margin: 0 0 12px 0; }
+  .pdf-container table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  .pdf-container td { vertical-align: top; padding: 4px; }
+  .pdf-container img { max-width: 100%; height: auto; display: block; }
+
+  .no-break { page-break-inside: avoid; }
+</style>
+
+<div class="pdf-container">
+  ${innerHtml}
+</div>
+`;
+  
 
 // --- EDITOR DE TEXTO DEFINITIVO (BARRA COMPLETA + ROLAGEM CORRIGIDA) ---
 const RichTextEditor = ({ value, onChange, isA4 = false }) => {
@@ -920,103 +928,148 @@ const handleGenerateDraft = () => {
     }
     return html;
   };
-  // --- GERADOR DA PÁGINA DE LOG (CORRIGIDO E LIMPO) ---
-  // --- GERADOR DA PÁGINA DE LOG (CORRIGIDO: CPF + QUEBRA DE PÁGINA) ---
-  const buildAuditPageHtml = (student) => {
-    const sData = student.studentData || {};
-    
-    // CORREÇÃO DO CPF: Busca na raiz (cadastro) ou nos dados salvos (assinatura)
-    const rawCpf = student.cpf || sData.cpf || 'Não informado';
-    // Formata CPF se necessário (opcional, mas garante visual bonito)
-    const finalCpf = rawCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+// --- GERADOR DA PÁGINA DE LOG (CORRIGIDO: V7 - RESET CSS + BLOCO LIMPO) ---
+const buildAuditPageHtml = (student) => {
+  const sData = student.studentData || {};
+  
+  const rawCpf = student.cpf || sData.cpf || 'Não informado';
+  const finalCpf = rawCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
 
-    const signDate = sData.signedAt ? new Date(sData.signedAt).toLocaleString('pt-BR') : 'Data n/d';
-    const createdDate = student.createdAt ? new Date(student.createdAt).toLocaleString('pt-BR') : 'Data n/d';
-    const ip = sData.ipAddress || "IP não registrado";
-    const docId = student.id;
-    const hashId =  docId.split('').reverse().join('') + "ab9"; 
+  const signDate = sData.signedAt ? new Date(sData.signedAt).toLocaleString('pt-BR') : 'Data n/d';
+  const createdDate = student.createdAt ? new Date(student.createdAt).toLocaleString('pt-BR') : 'Data n/d';
+  const ip = sData.ipAddress || "IP não registrado";
+  const docId = student.id;
+  const hashId =  docId.split('').reverse().join('') + "ab9"; 
 
-    // ATENÇÃO AO ESTILO ABAIXO:
-    // 'page-break-before: always' força nova página no PDF.
-    // 'margin-top: 50px' dá respiro para o cabeçalho não colar no topo.
-    return `
-      <div style="page-break-before: always; clear: both; display: block; width: 100%;"></div>
+  // NOTA: Removemos page-break-before aqui pois faremos via JS
+  // Adicionamos line-height: 1.5 explícito para corrigir o encavalamento
+  return `
+    <div style="
+        display: block; 
+        width: 100%; 
+        font-family: 'Helvetica', 'Arial', sans-serif; 
+        color: #000; 
+        line-height: 1.5 !important; 
+        background-color: white;
+    ">
       
-      <div style="padding-top: 20px; font-family: sans-serif; color: #333;">
+      <div style="padding-top: 20px; color: #333;">
         
-        <table style="width: 100%; border-bottom: 2px solid #000; margin-bottom: 30px;">
+        <table style="width: 100%; border-bottom: 2px solid #000; margin-bottom: 30px; border-collapse: collapse;">
             <tr>
-                <td style="vertical-align: bottom; padding-bottom: 10px;">
-                    <div style="font-weight: 900; font-size: 28px; color: #000; text-transform: uppercase;">Team Ebony</div>
+                <td style="vertical-align: bottom; padding-bottom: 10px; width: 60%;">
+                    <div style="font-weight: 900; font-size: 24px; color: #000; text-transform: uppercase; line-height: 1.2;">Team Ebony</div>
                     <div style="font-size: 10px; color: #555; margin-top: 5px;">Nutrição, Treinamento & Performance</div>
                 </td>
-                <td style="text-align: right; vertical-align: bottom; padding-bottom: 10px; font-size: 9px; color: #666;">
-                    <strong>Autenticação Eletrônica</strong><br>
-                    ID: ${docId}<br>
-                    Data: ${signDate}
+                <td style="text-align: right; vertical-align: bottom; padding-bottom: 10px; font-size: 9px; color: #666; width: 40%;">
+                    <div style="line-height: 1.4;">
+                        <strong>Autenticação Eletrônica</strong><br>
+                        ID: ${docId}<br>
+                        Data: ${signDate}
+                    </div>
                 </td>
             </tr>
         </table>
 
-        <h2 style="text-align: center; font-size: 16px; margin-bottom: 40px; text-transform: uppercase; letter-spacing: 2px;">Folha de Assinaturas</h2>
+        <h2 style="text-align: center; font-size: 16px; margin-bottom: 40px; text-transform: uppercase; letter-spacing: 2px; font-weight: bold;">Folha de Assinaturas</h2>
 
-        <table style="width: 100%; margin-bottom: 50px;">
+        <table style="width: 100%; margin-bottom: 50px; border-collapse: collapse;">
             <tr>
-                <td style="width: 45%; text-align: center; vertical-align: bottom;">
+                <td style="width: 45%; text-align: center; vertical-align: top;">
                     ${student.signature?.image 
-                      ? `<img src="${student.signature.image}" style="width: 140px; height: auto; display: block; margin: 0 auto 5px auto;" />` 
+                      ? `<img src="${student.signature.image}" style="width: 140px; height: auto; display: block; margin: 0 auto 10px auto;" />` 
                       : '<div style="height: 60px;"></div>'}
-                    <div style="border-top: 1px solid #000; padding-top: 5px; margin: 0 20px;">
-                        <div style="font-weight: bold; font-size: 12px;">${student.name}</div>
-                        <div style="font-size: 10px; color: #555;">CPF: ${finalCpf}</div>
-                        <div style="font-size: 10px; color: #555;">ALUNO (CONTRATANTE)</div>
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin: 0 10px;">
+                        <div style="font-weight: bold; font-size: 12px; margin-bottom: 2px;">${student.name}</div>
+                        <div style="font-size: 10px; color: #555; line-height: 1.2;">CPF: ${finalCpf}<br>ALUNO (CONTRATANTE)</div>
                     </div>
                 </td>
 
-                <td style="width: 45%; text-align: center; vertical-align: bottom;">
-                    <img src="${COMPANY_SIGNATURE_URL}" style="width: 140px; height: auto; display: block; margin: 0 auto 5px auto;" />
+                <td style="width: 10%;"></td> 
+
+                <td style="width: 45%; text-align: center; vertical-align: top;">
+                    <img src="${COMPANY_SIGNATURE_URL}" style="width: 140px; height: auto; display: block; margin: 0 auto 10px auto;" />
                     
-                    <div style="border-top: 1px solid #000; padding-top: 5px; margin: 0 20px;">
-                        <div style="font-weight: bold; font-size: 12px;">Hérick Ebony</div>
-                        <div style="font-size: 10px; color: #555;">Team Ebony</div>
-                        <div style="font-size: 10px; color: #555;">CONTRATADA</div>
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin: 0 10px;">
+                        <div style="font-weight: bold; font-size: 12px; margin-bottom: 2px;">Hérick Ebony</div>
+                        <div style="font-size: 10px; color: #555; line-height: 1.2;">Team Ebony<br>CONTRATADA</div>
                     </div>
                 </td>
             </tr>
         </table>
 
         <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #eee;">
-            <h3 style="font-size: 12px; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 15px; text-transform: uppercase;">Trilha de Auditoria</h3>
+            <h3 style="font-size: 12px; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 15px; text-transform: uppercase; font-weight: bold;">Trilha de Auditoria</h3>
             
             <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
                 <tr>
-                    <td style="padding: 5px 0; width: 120px; font-weight: bold; color: #333;">${createdDate}</td>
-                    <td style="padding: 5px 0;">
-                        <strong>Criação do Documento</strong><br>
+                    <td style="padding: 5px 0; width: 130px; font-weight: bold; color: #333; vertical-align: top;">${createdDate}</td>
+                    <td style="padding: 5px 0; vertical-align: top;">
+                        <strong style="display:block; margin-bottom:2px;">Criação do Documento</strong>
                         <span style="color: #666;">Gerado pelo sistema Team Ebony.</span>
                     </td>
                 </tr>
                 <tr>
-                    <td style="padding: 10px 0; font-weight: bold; color: #333;">${signDate}</td>
-                    <td style="padding: 10px 0;">
-                        <strong>Assinatura do Aluno</strong><br>
-                        <span style="color: #666;">IP: ${ip}</span><br>
+                    <td style="padding: 10px 0; font-weight: bold; color: #333; vertical-align: top;">${signDate}</td>
+                    <td style="padding: 10px 0; vertical-align: top;">
+                        <strong style="display:block; margin-bottom:2px;">Assinatura do Aluno</strong>
+                        <span style="color: #666; display:block; margin-bottom:2px;">IP: ${ip}</span>
                         <span style="color: #666;">Dispositivo: ${sData.deviceInfo || 'Navegador Web'}</span>
                     </td>
                 </tr>
             </table>
         </div>
 
-        <div style="margin-top: 30px; text-align: center; font-size: 9px; color: #888; border-top: 1px dashed #ccc; padding-top: 10px;">
+        <div style="margin-top: 30px; text-align: center; font-size: 9px; color: #888; border-top: 1px dashed #ccc; padding-top: 10px; line-height: 1.4;">
             <div style="font-weight: bold; font-size: 10px; color: #000; margin-bottom: 4px;">VALIDAÇÃO DE SEGURANÇA DIGITAL</div>
             Hash SHA256: ${hashId}<br>
             Este documento possui validade jurídica conforme MP 2.200-2/2001.
         </div>
 
       </div>
-    `;
-  };
-// ✅ FUNÇÃO ATUALIZADA: PDF COM RODAPÉ EM TODAS AS PÁGINAS + BACKUP NA NUVEM
+    </div>
+  `;
+};
+const renderElementAsFullPageImage = async (doc, element, options = {}) => {
+  const {
+    margin = 30,     // margem em PT (parece Word)
+    shrink = 0.92,   // 0.92 = reduz um pouco (ajusta o “texto grande demais”)
+    scale = 2        // qualidade da imagem
+  } = options;
+
+  const canvas = await html2canvas(element, {
+    scale,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: "#ffffff",
+    logging: false
+  });
+
+  const imgData = canvas.toDataURL("image/png");
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+
+  // área útil (com margem)
+  const maxW = (pageW - margin * 2) * shrink;
+  const maxH = (pageH - margin * 2) * shrink;
+
+  // escala proporcional pra caber na área útil
+  let finalW = maxW;
+  let finalH = (canvas.height * finalW) / canvas.width;
+
+  if (finalH > maxH) {
+    finalH = maxH;
+    finalW = (canvas.width * finalH) / canvas.height;
+  }
+
+  // posiciona como “Word”: começa no topo com margem (não centraliza no meio da página)
+  const x = margin + (pageW - margin * 2 - finalW) / 2;
+  const y = margin;
+
+  doc.addImage(imgData, "PNG", x, y, finalW, finalH);
+};
+// ✅ FUNÇÃO BLINDADA: GERAÇÃO SEQUENCIAL ISOLADA
 const generateContractPDF = async (student) => {
   if (!student?.signature?.image) {
     alert("A assinatura ainda não foi carregada. Tente novamente.");
@@ -1028,12 +1081,12 @@ const generateContractPDF = async (student) => {
       const loadingMsg = document.createElement('div');
       loadingMsg.id = loadingId;
       loadingMsg.innerHTML = `
-        <div style="position:fixed;top:20px;right:20px;background:black;color:white;padding:15px 25px;border-radius:8px;z-index:99999;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.2);flex-direction:column;display:flex;align-items:center;gap:10px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-             <div style="width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
-             <span style="font-weight:bold;font-size:14px;">Gerando Contrato Seguro...</span>
-          </div>
-          <div id="pdf-progress-text" style="font-size:10px; opacity:0.8;">Processando páginas...</div>
+        <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.95);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:15px;">
+           <div style="width:50px;height:50px;border:5px solid #000;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+           <div style="font-family:sans-serif; text-align:center;">
+             <h3 style="font-weight:bold;font-size:20px;margin:0;">Gerando Documento...</h3>
+             <p id="pdf-progress-text" style="color:#666;margin:5px 0 0 0;">Iniciando...</p>
+           </div>
         </div>
         <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       `;
@@ -1045,6 +1098,9 @@ const generateContractPDF = async (student) => {
       if(el) el.innerText = msg;
   }
 
+  // Elementos DOM temporários (Variáveis de escopo para limpeza posterior)
+  let masterContainer = null;
+
   try {
     const pdf = new jsPDF({
       orientation: "portrait",
@@ -1052,83 +1108,127 @@ const generateContractPDF = async (student) => {
       format: "a4"
     });
 
-    const container = document.createElement("div");
-    container.style.position = "absolute";
-    container.style.left = "-10000px";
-    container.style.top = "0";
-    container.style.width = "794px"; 
+    // 1. CRIAR UM "MUNDO" ISOLADO NO DOM
+    // Criamos um container gigante fora da tela para abrigar os dois pedaços separadamente
+    masterContainer = document.createElement("div");
+    masterContainer.style.position = "absolute";
+    masterContainer.style.top = "-20000px"; // Muito longe da vista
+    masterContainer.style.left = "0";
+    masterContainer.style.width = "794px";
     
-    // Constrói o HTML
-    const contractBody = buildSignedContractHtml(student);
-    const auditPage = buildAuditPageHtml(student);
+    // 2. PREPARAR O CONTRATO (Parte A)
+    const contractDiv = document.createElement("div");
+    contractDiv.id = "print-contract-part";
+    contractDiv.style.width = "794px";
+    contractDiv.style.background = "white";
+    contractDiv.innerHTML = wrapHtmlForPdf(buildSignedContractHtml(student));
     
-    container.innerHTML = wrapHtmlForPdf(contractBody + auditPage);
-    document.body.appendChild(container);
+    // 3. PREPARAR A AUDITORIA (Parte B) - Separada fisicamente
+    const auditDiv = document.createElement("div");
+    auditDiv.id = "print-audit-part";
+    auditDiv.style.width = "794px";
+    auditDiv.style.background = "white";
+    auditDiv.style.marginTop = "100px"; // Margem de segurança no DOM (não afeta o PDF)
+    auditDiv.innerHTML = wrapHtmlForPdf(buildAuditPageHtml(student));
 
-    // Espera imagens carregarem
+    // Adiciona ao DOM
+    masterContainer.appendChild(contractDiv);
+    masterContainer.appendChild(auditDiv);
+    document.body.appendChild(masterContainer);
+
+    // Espera renderização do navegador (imagens, fontes)
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // Gera o PDF
-    await pdf.html(container.querySelector(".pdf-container"), {
-      callback: async (doc) => {
-        
-        // --- ADICIONA O RODAPÉ EM TODAS AS PÁGINAS ---
-        const pageCount = doc.internal.getNumberOfPages();
-        const docId = student.id;
-        const hashId = docId.split('').reverse().join('') + "ab9-secure"; // Simulação de Hash
-        
-        doc.setFontSize(7);
-        doc.setTextColor(150); // Cinza claro
+    updateStatus("Renderizando contrato (Parte 1)...");
 
-        for(let i = 1; i <= pageCount; i++) {
-            doc.setPage(i);
-            // Desenha linha fina no rodapé
-            doc.setDrawColor(200, 200, 200);
-            doc.line(20, 810, 575, 810); // Linha perto do fim da A4 (altura ~842pt)
-            
-            // Texto do rodapé
-            const footerText = `Doc ID: ${docId} | Hash: ${hashId} | Página ${i} de ${pageCount}`;
-            doc.text(footerText, 30, 825);
-            doc.text("Assinado digitalmente via Team Ebony Consulting", 565, 825, { align: "right" });
-        }
-        // ---------------------------------------------
+    await new Promise((resolve, reject) => {
+      pdf.html(contractDiv.querySelector(".pdf-container"), {
+        callback: async (pdfDoc) => {
+          const doc = pdfDoc; // <-- garante que "doc" existe aqui dentro
 
-        // 1. Salva o PDF localmente (Download)
-        const fileName = `Contrato_${String(student.name).split(' ')[0]}_${docId.slice(0,4)}.pdf`;
-        doc.save(fileName);
-        
-        updateStatus("Fazendo backup na nuvem...");
+          try {
+            // --- FASE 2: NOVA PÁGINA + AUDITORIA (essa pode ser imagem) ---
+            updateStatus("Gerando folha de assinaturas (Parte 2)...");
 
-        // 2. BACKUP NA NUVEM (Firebase Storage)
-        const pdfBlob = doc.output('blob');
-        const storageRef = ref(storage, `contratos_assinados/${docId}.pdf`);
-        
-        await uploadBytes(storageRef, pdfBlob);
-        const downloadUrl = await getDownloadURL(storageRef);
+            doc.setPage(doc.internal.getNumberOfPages()); // última página do contrato
+            doc.addPage(); // cria a página da auditoria
 
-        // 3. Atualiza o cadastro do aluno com o link do PDF
-        await updateDoc(doc(db, "students", student.id), {
-            contractPdfUrl: downloadUrl,
-            status: 'signed' // Garante status
-        });
+            await renderElementAsFullPageImage(
+              doc,
+              auditDiv.querySelector(".pdf-container")
+            );
 
-        document.body.removeChild(container);
-        const loadingEl = document.getElementById(loadingId);
-        if (loadingEl) document.body.removeChild(loadingEl);
+            updateStatus("Finalizando e salvando...");
 
-        alert("✅ Contrato gerado, baixado e salvo na nuvem com sucesso!");
-      },
-      x: 0,
-      y: 0,
-      html2canvas: { scale: 0.75, useCORS: true, logging: false },
-      autoPaging: 'text',
-      margin: [20, 0, 40, 0], // Margem inferior maior para caber o rodapé
-      width: 595
+            // --- RODAPÉ EM TODAS AS PÁGINAS ---
+            const totalPages = doc.internal.getNumberOfPages();
+            const docId = student.id;
+
+            doc.setFontSize(8);
+            doc.setTextColor(120);
+
+            for (let i = 1; i <= totalPages; i++) {
+              doc.setPage(i);
+              doc.setDrawColor(200);
+              doc.line(30, 810, 565, 810);
+              doc.text(`ID: ${docId} | Pág ${i}/${totalPages}`, 30, 825);
+              doc.text("Team Ebony Consulting", 565, 825, { align: "right" });
+            }
+
+            // --- BACKUP FIREBASE ---
+            updateStatus("Fazendo backup na nuvem...");
+            const pdfBlob = doc.output("blob");
+            const storageRef = ref(storage, `contratos_assinados/${docId}.pdf`);
+
+            await uploadBytes(storageRef, pdfBlob);
+            const downloadUrl = await getDownloadURL(storageRef);
+
+            await updateDoc(firestoreDoc(db, "students", student.id), {
+              contractPdfUrl: downloadUrl,
+              status: "signed",
+              contractPdfUpdatedAt: new Date().toISOString(),
+            });
+
+            // --- SALVAR LOCAL ---
+            const firstName = (student.name || "Aluno").split(" ")[0];
+            const fileName = `Contrato_${firstName}_${String(docId).substring(0, 4)}.pdf`;
+            doc.save(fileName);
+
+            // --- LIMPEZA ---
+            if (masterContainer && document.body.contains(masterContainer)) {
+              document.body.removeChild(masterContainer);
+            }
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) document.body.removeChild(loadingEl);
+
+            alert("✅ Sucesso! Contrato gerado corretamente.");
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        },
+
+        x: 0,
+        y: 0,
+
+        // ✅ ESSA É A DIFERENÇA QUE VOLTA "WORD-LIKE"
+        autoPaging: "text", // <-- NÃO É SLICE
+        html2canvas: { scale: 0.75, logging: false, useCORS: true, backgroundColor: "#fff" },
+
+        margin: [30, 0, 40, 0],
+        width: 595,
+        windowWidth: 794,
+      });
     });
 
+
   } catch (error) {
-    console.error("Erro PDF:", error);
-    alert("Erro ao gerar PDF.");
+    console.error("Erro CRÍTICO PDF:", error);
+    alert("Erro ao gerar PDF: " + error.message);
+    
+    if(masterContainer && document.body.contains(masterContainer)) {
+        document.body.removeChild(masterContainer);
+    }
     const loadingEl = document.getElementById(loadingId);
     if (loadingEl) document.body.removeChild(loadingEl);
   }
@@ -2572,8 +2672,6 @@ if (viewState === 'login') return (
     </div>
   );
 
-  // --- AQUI ESTAVA O ERRO: O CÓDIGO "LIXO" FOI REMOVIDO DAQUI ---
-
   if (viewState === 'contract_sign') {
     const baseHTML = activeStudent?.contractText || "<div style='padding:40px; text-align:center; color:red; font-weight:bold;'>⚠️ ERRO: O texto do contrato não foi gerado. O treinador precisa salvar a minuta no Dashboard primeiro.</div>";
 
@@ -2582,19 +2680,22 @@ if (viewState === 'login') return (
 
     // AQUI ESTÁ A MÁGICA: Junta o que ele digita com o que JÁ ESTÁ SALVO (que você corrigiu)
     const mergedValues = {
-      // Dados salvos no banco (Correção do Admin)
-      name: activeStudent.name,
-      phone: activeStudent.phone,
-      cpf: activeStudent.cpf,
-      rg: activeStudent.rg,
-      email: activeStudent.email,
-      address: activeStudent.address,
-      birthDate: activeStudent.birthDate ? new Date(activeStudent.birthDate).toLocaleDateString('pt-BR') : "",
-      profession: activeStudent.profession,
-      
-      // Dados que ele está digitando agora (se houver campos extras)
+      // chaves no formato que teus templates usam:
+      nome: activeStudent.name || "",
+      telefone: activeStudent.phone || "",
+      cpf: activeStudent.cpf || "",
+      rg: activeStudent.rg || "",
+      email: activeStudent.email || "",
+      endereco: activeStudent.address || "",
+      profissao: activeStudent.profession || "",
+      nascimento: activeStudent.birthDate
+        ? new Date(activeStudent.birthDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })
+        : "",
+    
+      // campos extras que o aluno digitar (se teu template tiver)
       ...studentFieldValues,
     };
+    
 
     // monta HTML do contrato já preenchido
     const contractDisplay = applyStudentValuesToContract(baseHTML, mergedValues);
