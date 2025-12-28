@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
+const firestoreDoc = doc;
 import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
 import html2canvas from "html2canvas";
 
@@ -131,7 +132,7 @@ const VideoPlayerGlobal = ({ url }) => {
     </div>
   );
 };
-// ✅ CSS V9-SAFE: mantém “cara de Word”, NÃO encavala com título grande, e reduz bug de negrito/itálico
+// ✅ CSS V9-SAFE: Mantém formatação mas FORÇA PRETO no PDF
 const wrapHtmlForPdf = (innerHtml) => `
 <style>
   * { box-sizing: border-box; }
@@ -143,52 +144,42 @@ const wrapHtmlForPdf = (innerHtml) => `
     font-family: Arial, Helvetica, sans-serif;
     font-size: 12px;
     color: #000;
-
-    /* ✅ mais estável que justify global */
-    text-align: left;
-
-    /* ✅ unitless = não quebra quando algum trecho tem font-size maior */
     line-height: 1.45;
+    text-align: left;
     overflow: visible;
-
     overflow-wrap: break-word;
     word-break: normal;
-    hyphens: none;
   }
 
-  /* ✅ parágrafos justificam (cara de contrato), mas com line-height estável */
-  .pdf-container p {
-    margin: 0 0 14px 0;
-    line-height: 1.45;
-    text-align: justify;
+  /* Força cor preta em todos os textos, links e spans */
+  .pdf-container p, 
+  .pdf-container span, 
+  .pdf-container font, 
+  .pdf-container b, 
+  .pdf-container strong, 
+  .pdf-container i, 
+  .pdf-container em,
+  .pdf-container a {
+    color: #000 !important;
+    text-decoration: none; /* Remove sublinhado de links se houver */
   }
 
-  /* ✅ títulos com respiro, sem altura fixa em px */
-  .pdf-container h1,
-  .pdf-container h2,
-  .pdf-container h3 {
-    margin: 22px 0 14px 0;
-    font-weight: 700;
-    line-height: 1.25;
-    page-break-after: avoid;
+  .pdf-container p { margin: 0 0 14px 0; text-align: justify; }
+  
+  .pdf-container h1, .pdf-container h2, .pdf-container h3 {
+    margin: 22px 0 14px 0; font-weight: 700; line-height: 1.25; color: #000 !important;
   }
 
-  /* ✅ itálico/negrito previsíveis */
-  .pdf-container em, .pdf-container i { font-style: italic; }
-  .pdf-container strong, .pdf-container b { font-weight: 700; }
-
-  /* tabelas e imagens */
   .pdf-container table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  .pdf-container td, .pdf-container th { vertical-align: top; padding: 4px; }
+  .pdf-container td, .pdf-container th { vertical-align: top; padding: 4px; color: #000 !important; }
   .pdf-container img { max-width: 100%; height: auto; display: block; }
-
   .no-break { page-break-inside: avoid; }
 </style>
 
 <div class="pdf-container">
   ${innerHtml}
 </div>
-`;  
+`;
 
 // --- EDITOR DE TEXTO DEFINITIVO (BARRA COMPLETA + ROLAGEM CORRIGIDA) ---
 const RichTextEditor = ({ value, onChange, isA4 = false }) => {
@@ -206,7 +197,7 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
     if (!url.startsWith("http://") && !url.startsWith("https://")) url = `https://${url}`;
     const text = prompt("Texto do link:", selectionText || "Clique aqui");
     if (!text) return;
-    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${escapeHtml(text)}</a>`;
+    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${escapeHtml(text)}</a>`;
     document.execCommand("insertHTML", false, linkHtml);
     if (editorRef.current) onChange(editorRef.current.innerHTML);
   };
@@ -858,7 +849,7 @@ const Dashboard = ({
     if (!editingStudentId) return alert("Nenhum aluno selecionado para edição.");
     
     try {
-        await updateDoc(doc(db, "students", editingStudentId), {
+        await updateDoc(firestoreDoc(db, "students", student.id), {
             name: newStudentName,
             phone: newStudentPhone.replace(/\D/g, ''),
             ...extraData // Salva CPF, RG, Endereço, etc.
