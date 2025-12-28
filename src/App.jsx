@@ -131,7 +131,7 @@ const VideoPlayerGlobal = ({ url }) => {
     </div>
   );
 };
-// ✅ CSS ATUALIZADO V8: FIM DO ENCAVALAMENTO + FONTE SEGURA
+// ✅ CSS V9-SAFE: mantém “cara de Word”, NÃO encavala com título grande, e reduz bug de negrito/itálico
 const wrapHtmlForPdf = (innerHtml) => `
 <style>
   * { box-sizing: border-box; }
@@ -139,24 +139,47 @@ const wrapHtmlForPdf = (innerHtml) => `
   .pdf-container {
     width: 794px;
     padding: 40px 50px;
-    background: #fff;
+    background-color: #ffffff;
     font-family: Arial, Helvetica, sans-serif;
     font-size: 12px;
     color: #000;
-    line-height: 1.5;
-    text-align: justify;
 
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    /* ✅ mais estável que justify global */
+    text-align: left;
+
+    /* ✅ unitless = não quebra quando algum trecho tem font-size maior */
+    line-height: 1.45;
+    overflow: visible;
+
+    overflow-wrap: break-word;
+    word-break: normal;
+    hyphens: none;
   }
 
-  .pdf-container h1 { font-size: 18px; margin: 0 0 14px 0; font-weight: 700; }
-  .pdf-container h2 { font-size: 14px; margin: 20px 0 12px 0; font-weight: 700; }
-  .pdf-container h3 { font-size: 13px; margin: 18px 0 10px 0; font-weight: 700; }
+  /* ✅ parágrafos justificam (cara de contrato), mas com line-height estável */
+  .pdf-container p {
+    margin: 0 0 14px 0;
+    line-height: 1.45;
+    text-align: justify;
+  }
 
-  .pdf-container p { margin: 0 0 12px 0; }
+  /* ✅ títulos com respiro, sem altura fixa em px */
+  .pdf-container h1,
+  .pdf-container h2,
+  .pdf-container h3 {
+    margin: 22px 0 14px 0;
+    font-weight: 700;
+    line-height: 1.25;
+    page-break-after: avoid;
+  }
+
+  /* ✅ itálico/negrito previsíveis */
+  .pdf-container em, .pdf-container i { font-style: italic; }
+  .pdf-container strong, .pdf-container b { font-weight: 700; }
+
+  /* tabelas e imagens */
   .pdf-container table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  .pdf-container td { vertical-align: top; padding: 4px; }
+  .pdf-container td, .pdf-container th { vertical-align: top; padding: 4px; }
   .pdf-container img { max-width: 100%; height: auto; display: block; }
 
   .no-break { page-break-inside: avoid; }
@@ -165,8 +188,7 @@ const wrapHtmlForPdf = (innerHtml) => `
 <div class="pdf-container">
   ${innerHtml}
 </div>
-`;
-  
+`;  
 
 // --- EDITOR DE TEXTO DEFINITIVO (BARRA COMPLETA + ROLAGEM CORRIGIDA) ---
 const RichTextEditor = ({ value, onChange, isA4 = false }) => {
@@ -1069,6 +1091,13 @@ const renderElementAsFullPageImage = async (doc, element, options = {}) => {
 
   doc.addImage(imgData, "PNG", x, y, finalW, finalH);
 };
+const fixTightSpacing = (html) => {
+  return String(html)
+    // coloca espaço depois de tags de formatação quando a próxima coisa for letra/número
+    .replace(/<\/(strong|b|em|i|u)>(?=[0-9A-Za-zÀ-ÖØ-öø-ÿ])/g, "</$1> ")
+    // evita “duplo espaço”
+    .replace(/\s{2,}/g, " ");
+};
 // ✅ FUNÇÃO BLINDADA: GERAÇÃO SEQUENCIAL ISOLADA
 const generateContractPDF = async (student) => {
   if (!student?.signature?.image) {
@@ -1121,7 +1150,7 @@ const generateContractPDF = async (student) => {
     contractDiv.id = "print-contract-part";
     contractDiv.style.width = "794px";
     contractDiv.style.background = "white";
-    contractDiv.innerHTML = wrapHtmlForPdf(buildSignedContractHtml(student));
+    contractDiv.innerHTML = wrapHtmlForPdf(fixTightSpacing(buildSignedContractHtml(student)));
     
     // 3. PREPARAR A AUDITORIA (Parte B) - Separada fisicamente
     const auditDiv = document.createElement("div");
