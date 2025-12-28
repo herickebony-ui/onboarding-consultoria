@@ -132,7 +132,7 @@ const VideoPlayerGlobal = ({ url }) => {
     </div>
   );
 };
-// ✅ CSS V9-SAFE: Mantém formatação mas FORÇA PRETO no PDF
+// ✅ CSS BLINDADO: Mata qualquer fundo azul ou cor de letra estranha
 const wrapHtmlForPdf = (innerHtml) => `
 <style>
   * { box-sizing: border-box; }
@@ -151,7 +151,10 @@ const wrapHtmlForPdf = (innerHtml) => `
     word-break: normal;
   }
 
-  /* Força cor preta em todos os textos, links e spans */
+  /* REGRAS DE OURO: */
+  /* 1. Tudo fica PRETO */
+  /* 2. Tudo fica com fundo TRANSPARENTE (remove o marca-texto azul) */
+  
   .pdf-container p, 
   .pdf-container span, 
   .pdf-container font, 
@@ -160,8 +163,11 @@ const wrapHtmlForPdf = (innerHtml) => `
   .pdf-container i, 
   .pdf-container em,
   .pdf-container a {
-    color: #000 !important;
-    text-decoration: none; /* Remove sublinhado de links se houver */
+    color: #000000 !important;
+    background-color: transparent !important; /* <--- ISSO REMOVE A TARJA */
+    background: none !important;
+    text-decoration: none;
+    text-shadow: none;
   }
 
   .pdf-container p { margin: 0 0 14px 0; text-align: justify; }
@@ -1126,7 +1132,7 @@ const fixTightSpacing = (html) => {
     // evita “duplo espaço”
     .replace(/\s{2,}/g, " ");
 };
-// ✅ FUNÇÃO BLINDADA: GERAÇÃO SEQUENCIAL ISOLADA
+// ✅ FUNÇÃO CORRIGIDA V4: REMOVE FUNDO E LETRA COLORIDA
 const generateContractPDF = async (student) => {
   if (!student?.signature?.image) {
     alert("A assinatura ainda não foi carregada. Tente novamente.");
@@ -1155,7 +1161,6 @@ const generateContractPDF = async (student) => {
       if(el) el.innerText = msg;
   }
 
-  // Elementos DOM temporários (Variáveis de escopo para limpeza posterior)
   let masterContainer = null;
 
   try {
@@ -1165,93 +1170,95 @@ const generateContractPDF = async (student) => {
       format: "a4"
     });
 
-    // 1. CRIAR UM "MUNDO" ISOLADO NO DOM
-    // Criamos um container gigante fora da tela para abrigar os dois pedaços separadamente
+    // 1. OBTÉM O HTML PURO (Sem tentar substituir cores via regex aqui)
+    const rawContractHtml = buildSignedContractHtml(student);
+    const cleanContractHtml = fixTightSpacing(rawContractHtml);
+
+    // 2. CRIAR UM "MUNDO" ISOLADO NO DOM
     masterContainer = document.createElement("div");
     masterContainer.style.position = "absolute";
-    masterContainer.style.top = "-20000px"; // Muito longe da vista
+    masterContainer.style.top = "-20000px";
     masterContainer.style.left = "0";
     masterContainer.style.width = "794px";
     
-    // 2. PREPARAR O CONTRATO (Parte A)
+    // Preparar Contrato (Parte A)
     const contractDiv = document.createElement("div");
     contractDiv.id = "print-contract-part";
     contractDiv.style.width = "794px";
     contractDiv.style.background = "white";
-    contractDiv.innerHTML = wrapHtmlForPdf(fixTightSpacing(buildSignedContractHtml(student)));
+    contractDiv.innerHTML = wrapHtmlForPdf(cleanContractHtml);
     
-    // 3. PREPARAR A AUDITORIA (Parte B) - Separada fisicamente
+    // Preparar Auditoria (Parte B)
     const auditDiv = document.createElement("div");
     auditDiv.id = "print-audit-part";
     auditDiv.style.width = "794px";
     auditDiv.style.background = "white";
-    auditDiv.style.marginTop = "100px"; // Margem de segurança no DOM (não afeta o PDF)
+    auditDiv.style.marginTop = "100px";
     auditDiv.innerHTML = wrapHtmlForPdf(buildAuditPageHtml(student));
 
-    // Adiciona ao DOM
     masterContainer.appendChild(contractDiv);
     masterContainer.appendChild(auditDiv);
     document.body.appendChild(masterContainer);
 
-    // Espera renderização do navegador (imagens, fontes)
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     updateStatus("Renderizando contrato (Parte 1)...");
 
     await new Promise((resolve, reject) => {
       pdf.html(contractDiv.querySelector(".pdf-container"), {
-        callback: async (pdfDoc) => {
-          const doc = pdfDoc; // <-- garante que "doc" existe aqui dentro
-
+        // Callback renomeado para evitar conflito de nome
+        callback: async (pdfCriado) => {
+          
           try {
-            // --- FASE 2: NOVA PÁGINA + AUDITORIA (essa pode ser imagem) ---
             updateStatus("Gerando folha de assinaturas (Parte 2)...");
 
-            doc.setPage(doc.internal.getNumberOfPages()); // última página do contrato
-            doc.addPage(); // cria a página da auditoria
+            pdfCriado.setPage(pdfCriado.internal.getNumberOfPages());
+            pdfCriado.addPage();
 
             await renderElementAsFullPageImage(
-              doc,
+              pdfCriado,
               auditDiv.querySelector(".pdf-container")
             );
 
             updateStatus("Finalizando e salvando...");
 
-            // --- RODAPÉ EM TODAS AS PÁGINAS ---
-            const totalPages = doc.internal.getNumberOfPages();
+            // Rodapé
+            const totalPages = pdfCriado.internal.getNumberOfPages();
             const docId = student.id;
 
-            doc.setFontSize(8);
-            doc.setTextColor(120);
+            pdfCriado.setFontSize(8);
+            pdfCriado.setTextColor(120);
 
             for (let i = 1; i <= totalPages; i++) {
-              doc.setPage(i);
-              doc.setDrawColor(200);
-              doc.line(30, 810, 565, 810);
-              doc.text(`ID: ${docId} | Pág ${i}/${totalPages}`, 30, 825);
-              doc.text("Team Ebony Consulting", 565, 825, { align: "right" });
+              pdfCriado.setPage(i);
+              pdfCriado.setDrawColor(200);
+              pdfCriado.line(30, 810, 565, 810);
+              pdfCriado.text(`ID: ${docId} | Pág ${i}/${totalPages}`, 30, 825);
+              pdfCriado.text("Team Ebony Consulting", 565, 825, { align: "right" });
             }
 
-            // --- BACKUP FIREBASE ---
+            // Backup Firebase
             updateStatus("Fazendo backup na nuvem...");
-            const pdfBlob = doc.output("blob");
+            const pdfBlob = pdfCriado.output("blob");
             const storageRef = ref(storage, `contratos_assinados/${docId}.pdf`);
 
             await uploadBytes(storageRef, pdfBlob);
             const downloadUrl = await getDownloadURL(storageRef);
 
-            await updateDoc(firestoreDoc(db, "students", student.id), {
+            // CORREÇÃO: Usando 'doc' (importado do firestore) corretamente
+            // (Assumindo que você não tem mais a variável 'doc' conflitante aqui dentro)
+            await updateDoc(doc(db, "students", student.id), {
               contractPdfUrl: downloadUrl,
               status: "signed",
               contractPdfUpdatedAt: new Date().toISOString(),
             });
 
-            // --- SALVAR LOCAL ---
+            // Salvar Local
             const firstName = (student.name || "Aluno").split(" ")[0];
             const fileName = `Contrato_${firstName}_${String(docId).substring(0, 4)}.pdf`;
-            doc.save(fileName);
+            pdfCriado.save(fileName);
 
-            // --- LIMPEZA ---
+            // Limpeza
             if (masterContainer && document.body.contains(masterContainer)) {
               document.body.removeChild(masterContainer);
             }
@@ -1267,17 +1274,13 @@ const generateContractPDF = async (student) => {
 
         x: 0,
         y: 0,
-
-        // ✅ ESSA É A DIFERENÇA QUE VOLTA "WORD-LIKE"
-        autoPaging: "text", // <-- NÃO É SLICE
+        autoPaging: "text",
         html2canvas: { scale: 0.75, logging: false, useCORS: true, backgroundColor: "#fff" },
-
         margin: [30, 0, 40, 0],
         width: 595,
         windowWidth: 794,
       });
     });
-
 
   } catch (error) {
     console.error("Erro CRÍTICO PDF:", error);
