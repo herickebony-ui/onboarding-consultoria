@@ -132,7 +132,7 @@ const VideoPlayerGlobal = ({ url }) => {
     </div>
   );
 };
-// ✅ CSS BLINDADO: Mata qualquer fundo azul ou cor de letra estranha
+// ✅ CSS V11 (CORRIGIDO): Tira o azul, mas RESPEITA negrito e títulos
 const wrapHtmlForPdf = (innerHtml) => `
 <style>
   * { box-sizing: border-box; }
@@ -141,44 +141,56 @@ const wrapHtmlForPdf = (innerHtml) => `
     width: 794px;
     padding: 40px 50px;
     background-color: #ffffff;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: 'Helvetica', 'Arial', sans-serif;
     font-size: 12px;
-    color: #000;
-    line-height: 1.45;
+    line-height: 1.5;
+    color: #000000; /* Cor base preta */
     text-align: left;
     overflow: visible;
     overflow-wrap: break-word;
     word-break: normal;
   }
 
-  /* REGRAS DE OURO: */
-  /* 1. Tudo fica PRETO */
-  /* 2. Tudo fica com fundo TRANSPARENTE (remove o marca-texto azul) */
-  
-  .pdf-container p, 
-  .pdf-container span, 
-  .pdf-container font, 
-  .pdf-container b, 
+  /* --- 1. REGRAS PARA TÍTULOS (Devolve os tamanhos) --- */
+  .pdf-container h1 { font-size: 24px !important; font-weight: 700 !important; margin: 20px 0 10px 0; color: #000 !important; }
+  .pdf-container h2 { font-size: 18px !important; font-weight: 700 !important; margin: 18px 0 10px 0; color: #000 !important; }
+  .pdf-container h3 { font-size: 14px !important; font-weight: 700 !important; margin: 15px 0 10px 0; color: #000 !important; }
+
+  /* --- 2. REGRAS PARA TEXTO COMUM --- */
+  .pdf-container p { 
+    margin: 0 0 14px 0; 
+    text-align: justify; 
+    color: #000 !important;
+  }
+
+  /* --- 3. REGRAS PARA NEGRITO E ITÁLICO (Protegidas) --- */
   .pdf-container strong, 
-  .pdf-container i, 
-  .pdf-container em,
+  .pdf-container b { 
+    font-weight: bold !important; 
+    color: #000 !important;
+  }
+  
+  .pdf-container em, 
+  .pdf-container i { 
+    font-style: italic !important; 
+    color: #000 !important;
+  }
+
+  /* --- 4. O MATA-AZUL (SÓ COR E FUNDO) --- */
+  /* Remove apenas a cor e o fundo das variáveis, sem mexer no tamanho ou peso da fonte */
+  .pdf-container span,
+  .pdf-container font,
   .pdf-container a {
     color: #000000 !important;
-    background-color: transparent !important; /* <--- ISSO REMOVE A TARJA */
-    background: none !important;
-    text-decoration: none;
-    text-shadow: none;
+    background-color: transparent !important;
+    text-decoration: none !important;
   }
 
-  .pdf-container p { margin: 0 0 14px 0; text-align: justify; }
-  
-  .pdf-container h1, .pdf-container h2, .pdf-container h3 {
-    margin: 22px 0 14px 0; font-weight: 700; line-height: 1.25; color: #000 !important;
-  }
-
+  /* Tabelas e Imagens */
   .pdf-container table { width: 100%; border-collapse: collapse; margin: 12px 0; }
   .pdf-container td, .pdf-container th { vertical-align: top; padding: 4px; color: #000 !important; }
   .pdf-container img { max-width: 100%; height: auto; display: block; }
+
   .no-break { page-break-inside: avoid; }
 </style>
 
