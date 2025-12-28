@@ -323,29 +323,31 @@ const RichTextEditor = ({ value, onChange, isA4 = false }) => {
   );
 };
 
-// --- COMPONENTE DE ASSINATURA V6 (BÉZIER SMOOTH + LARGURA VARIÁVEL + ANTI-TREMOR) ---
+// --- COMPONENTE DE ASSINATURA V6 (CORRIGIDO: RESIZE + SELEÇÃO) ---
 const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const sizeRef = useRef({ w: 0, h: 250, ratio: 1 });
   const drawingRef = useRef(false);
 
-  // --- ✅ CONFIG DO "NÍVEL PREMIUM" (AJUSTÁVEL) ---
-  const MIN_WIDTH = 1.8;          // espessura mínima
-  const MAX_WIDTH = 4.8;          // espessura máxima
-  const MIN_DISTANCE = 0.6;       // ignora micro-movimentos (mata tremor)
-  const CURVE_STEPS = 10;         // mais = mais suave, porém mais pesado
-  const VELOCITY_FILTER = 0.82;   // 0.8–0.9 suaviza mais a variação de largura
-  const PRESSURE_WEIGHT = 0.55;   // peso da pressão vs velocidade (0–1)
+  // --- CONFIGURAÇÃO ---
+  const MIN_WIDTH = 1.8;
+  const MAX_WIDTH = 4.8;
+  const MIN_DISTANCE = 0.6;
+  const CURVE_STEPS = 10;
+  const VELOCITY_FILTER = 0.82;
+  const PRESSURE_WEIGHT = 0.55;
 
-  // --- ✅ REFS DO SMOOTHING ---
-  const ptsRef = useRef([]);          // últimos pontos do traço
-  const lastVelocityRef = useRef(0);  // suaviza a velocidade
-  const lastWidthRef = useRef(3);     // suaviza a largura
-  const hasInkRef = useRef(false);    // para saber se desenhou algo
-  const movedRef = useRef(false);     // para detectar "tap" (bolinha)
+  // --- REFS ---
+  const ptsRef = useRef([]);
+  const lastVelocityRef = useRef(0);
+  const lastWidthRef = useRef(3);
+  const hasInkRef = useRef(false);
+  const movedRef = useRef(false);
+  // 🔥 NOVO: Ref para salvar o desenho durante o resize
+  const tempImgRef = useRef(null);
 
-  // 1) Configuração Robusta do Canvas (Resistente a Resize/Zoom)
+  // 1) Configuração Robusta do Canvas (Com Persistência de Dados)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -354,12 +356,20 @@ const SignaturePad = ({ onSave, onClear }) => {
       const parent = canvas.parentElement;
       if (!parent) return;
 
+      // 🔥 PASSO 1: Salva o desenho atual antes de mudar o tamanho
+      // Só salva se já tiver tinta, para evitar salvar um canvas em branco
+      let savedData = null;
+      if (hasInkRef.current) {
+         savedData = canvas.toDataURL();
+      }
+
       const ratio = Math.max(window.devicePixelRatio || 1, 1);
       const w = parent.offsetWidth;
       const h = 250;
 
       sizeRef.current = { w, h, ratio };
 
+      // Ao definir width/height, o canvas limpa automaticamente
       canvas.width = Math.floor(w * ratio);
       canvas.height = Math.floor(h * ratio);
 
@@ -367,10 +377,7 @@ const SignaturePad = ({ onSave, onClear }) => {
       canvas.style.height = `${h}px`;
 
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-      // 🔥 Reset + escala (evita traço gigante/desalinhado ao girar o celular)
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.strokeStyle = "#000";
@@ -378,6 +385,18 @@ const SignaturePad = ({ onSave, onClear }) => {
       ctx.lineWidth = 3;
 
       ctxRef.current = ctx;
+
+      // 🔥 PASSO 2: Restaura o desenho antigo (se existir)
+      if (savedData) {
+        const img = new Image();
+        img.src = savedData;
+        img.onload = () => {
+          // Desenha a imagem esticada para o novo tamanho
+          // Nota: Isso pode distorcer levemente se a proporção mudar muito, 
+          // mas para assinaturas é imperceptível e mantém o registro.
+          ctx.drawImage(img, 0, 0, w, h);
+        };
+      }
     };
 
     resizeCanvas();
@@ -398,19 +417,10 @@ const SignaturePad = ({ onSave, onClear }) => {
     };
   };
 
-  // --- Helpers Matemáticos (simples e estáveis) ---
   const lerp = (a, b, t) => a + (b - a) * t;
-
-  const dist = (a, b) => {
-    const dx = a.x - b.x;
-    const dy = a.y - b.y;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
-
-  const mid = (a, b) => ({
-    x: (a.x + b.x) / 2,
-    y: (a.y + b.y) / 2,
-  });
+  const dist = (a, b) => Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const velocity = (a, b) => dist(a, b) / Math.max(1, (b.t - a.t));
 
   const quadPoint = (p0, p1, p2, t) => {
     const mt = 1 - t;
@@ -420,35 +430,20 @@ const SignaturePad = ({ onSave, onClear }) => {
     };
   };
 
-  const velocity = (a, b) => {
-    const dt = Math.max(1, (b.t - a.t)); // evita divisão por zero
-    return dist(a, b) / dt;
-  };
-
-  // Largura baseada em: velocidade (mais rápido = mais fino) + pressão (mais força = mais grosso)
   const computeWidth = (vel, pressure) => {
-    // Normaliza a velocidade num range “útil”
-    const v = Math.min(2.5, Math.max(0, vel)); // clamp
-    const speedFactor = 1 - (v / 2.5);         // 0..1 (rápido=fino)
-
-    const press = Math.min(1, Math.max(0.1, pressure)); // 0.1..1
-
-    const mixed =
-      (1 - PRESSURE_WEIGHT) * speedFactor +
-      PRESSURE_WEIGHT * press;
-
+    const v = Math.min(2.5, Math.max(0, vel));
+    const speedFactor = 1 - (v / 2.5);
+    const press = Math.min(1, Math.max(0.1, pressure));
+    const mixed = (1 - PRESSURE_WEIGHT) * speedFactor + PRESSURE_WEIGHT * press;
     const w = MIN_WIDTH + (MAX_WIDTH - MIN_WIDTH) * mixed;
     return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
   };
 
-  // Desenha uma curva quadrática suave com largura variando (startW -> endW)
   const drawQuadraticVariableWidth = (from, ctrl, to, startW, endW) => {
     const ctx = ctxRef.current;
     if (!ctx) return;
 
     let prev = from;
-
-    // desenha em “micro-segmentos” para interpolar a largura
     for (let i = 1; i <= CURVE_STEPS; i++) {
       const t = i / CURVE_STEPS;
       const cur = quadPoint(from, ctrl, to, t);
@@ -462,7 +457,6 @@ const SignaturePad = ({ onSave, onClear }) => {
 
       prev = cur;
     }
-
     hasInkRef.current = true;
   };
 
@@ -474,12 +468,16 @@ const SignaturePad = ({ onSave, onClear }) => {
   };
 
   const handlePointerDown = (e) => {
+    // 🔥 CORREÇÃO DE SELEÇÃO: Mata qualquer evento padrão
     e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation(); 
+
+    // 🔥 TRUQUE EXTRA: Trava seleção no body enquanto desenha
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none'; // Safari Mobile
 
     const canvas = canvasRef.current;
-    const ctx = ctxRef.current;
-    if (!canvas || !ctx) return;
+    if (!canvas || !ctxRef.current) return;
 
     drawingRef.current = true;
     resetStrokeState();
@@ -487,10 +485,7 @@ const SignaturePad = ({ onSave, onClear }) => {
     const pt = getPoint(e);
     ptsRef.current.push(pt);
 
-    // captura ponteiro
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
-
-    // não desenha nada ainda: espera mover (ou no up desenha um “dot”)
   };
 
   const handlePointerMove = (e) => {
@@ -498,32 +493,22 @@ const SignaturePad = ({ onSave, onClear }) => {
     e.stopPropagation();
     if (!drawingRef.current) return;
 
-    const ctx = ctxRef.current;
-    if (!ctx) return;
-
     const pt = getPoint(e);
-
-    // anti-tremor: ignora “micro mov”
     const last = ptsRef.current[ptsRef.current.length - 1];
     if (last && dist(last, pt) < MIN_DISTANCE) return;
 
     movedRef.current = true;
-
-    // mantém uma janela de 3 pontos (p0, p1, p2)
     ptsRef.current.push(pt);
+
     if (ptsRef.current.length < 3) return;
     if (ptsRef.current.length > 3) ptsRef.current.shift();
 
     const [p0, p1, p2] = ptsRef.current;
-
-    // curva suave: desenha de midpoint(p0,p1) até midpoint(p1,p2) com controle p1
     const m1 = mid(p0, p1);
     const m2 = mid(p1, p2);
 
-    // velocidade suavizada
     const v = velocity(p1, p2);
     const filteredV = VELOCITY_FILTER * lastVelocityRef.current + (1 - VELOCITY_FILTER) * v;
-
     const targetW = computeWidth(filteredV, p2.p);
     const startW = lastWidthRef.current;
 
@@ -535,30 +520,30 @@ const SignaturePad = ({ onSave, onClear }) => {
 
   const finishStroke = (e) => {
     e.preventDefault();
-    if (!drawingRef.current) return;
+    
+    // 🔥 LIBERA SELEÇÃO: Devolve o comportamento normal ao body
+    document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
 
+    if (!drawingRef.current) return;
     drawingRef.current = false;
 
     const canvas = canvasRef.current;
     const ctx = ctxRef.current;
 
-    // libera ponteiro
     try {
       if (canvas && e.pointerId) canvas.releasePointerCapture(e.pointerId);
     } catch (err) {}
 
-    // se foi só um toque (tap), desenha um “dot” bonito
     if (ctx && !movedRef.current) {
       const pt = ptsRef.current[0] || getPoint(e);
       const r = (MAX_WIDTH / 2) * 0.9;
-
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
       ctx.fill();
       hasInkRef.current = true;
     }
 
-    // salva automaticamente ao levantar (só se tiver algo desenhado)
     if (onSave && canvas && hasInkRef.current) {
       onSave(canvas.toDataURL("image/png"));
     }
@@ -574,12 +559,13 @@ const SignaturePad = ({ onSave, onClear }) => {
 
     resetStrokeState();
     hasInkRef.current = false;
-
     if (onClear) onClear();
   };
 
   return (
     <div
+      // 🔥 CORREÇÃO: Impede o início de seleção no container pai também
+      onSelectStart={(e) => e.preventDefault()}
       className="border border-gray-300 rounded-xl bg-white overflow-hidden shadow-inner select-none touch-none"
       style={{ touchAction: "none" }}
     >
@@ -601,51 +587,19 @@ const SignaturePad = ({ onSave, onClear }) => {
       />
 
       <div className="bg-gray-50 p-2 border-t border-gray-200 flex justify-between items-center px-4">
-        <span className="text-[10px] text-gray-400 uppercase font-bold pointer-events-none">
+        <span className="text-[10px] text-gray-400 uppercase font-bold pointer-events-none select-none">
           Assine no espaço acima
         </span>
         <button
           onClick={clear}
           type="button"
-          className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1.5 rounded transition-colors uppercase tracking-wide"
+          className="text-xs text-red-600 font-bold hover:bg-red-50 px-3 py-1.5 rounded transition-colors uppercase tracking-wide select-none"
         >
           Limpar
         </button>
       </div>
     </div>
   );
-};
-
-// --- FUNÇÃO GLOBAL: PREENCHER CONTRATO ---
-const applyStudentValuesToContract = (html, values) => {
-  let out = html || "";
-  
-  Object.entries(values || {}).forEach(([key, val]) => {
-    // Tratamento seguro para regex
-    const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
-    
-    // Valor limpo (sem tags HTML estranhas, apenas texto)
-    const safeVal = String(val ?? "").trim();
-    
-    // Se o valor existir, substitui. Se não, coloca linha.
-    // Usamos o escapeHtml para segurança, mas sem envolver em <span> extra
-    out = out.replace(regex, safeVal ? escapeHtml(safeVal) : "______________________");
-  });
- 
-  // Substitui o placeholder da assinatura pela linha preta e espaço da imagem
-  out = out.replace(
-    /{{\s*assinatura_aluno\s*}}/g,
-    `<div style="margin-top: 20px; width: 100%;">
-       <div style="border-bottom: 1px solid #000; width: 260px; margin-bottom: 5px;"></div>
-       <div style="font-size: 10pt;">Assinatura do Aluno</div>
-     </div>`
-  );
-  
-  // Limpa variáveis residuais que não foram preenchidas
-  out = out.replace(/{{\s*[\w_]+\s*}}/g, "______________________");
-  
-  return out;
 };
 
 // --- COMPONENTE DASHBOARD (ADMIN) ---
