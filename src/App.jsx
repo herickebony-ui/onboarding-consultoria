@@ -602,6 +602,38 @@ const SignaturePad = ({ onSave, onClear }) => {
   );
 };
 
+// --- FUNÇÃO GLOBAL: PREENCHER CONTRATO ---
+const applyStudentValuesToContract = (html, values) => {
+  let out = html || "";
+  
+  Object.entries(values || {}).forEach(([key, val]) => {
+    // Tratamento seguro para regex
+    const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`{{\\s*${safeKey}\\s*}}`, "g");
+    
+    // Valor limpo (sem tags HTML estranhas, apenas texto)
+    // Nota: Certifique-se de que a função escapeHtml também existe no seu código!
+    const safeVal = String(val ?? "").trim();
+    
+    // Se o valor existir, substitui. Se não, coloca linha.
+    out = out.replace(regex, safeVal ? escapeHtml(safeVal) : "______________________");
+  });
+ 
+  // Substitui o placeholder da assinatura pela linha preta e espaço da imagem
+  out = out.replace(
+    /{{\s*assinatura_aluno\s*}}/g,
+    `<div style="margin-top: 20px; width: 100%;">
+       <div style="border-bottom: 1px solid #000; width: 260px; margin-bottom: 5px;"></div>
+       <div style="font-size: 10pt;">Assinatura do Aluno</div>
+     </div>`
+  );
+  
+  // Limpa variáveis residuais que não foram preenchidas
+  out = out.replace(/{{\s*[\w_]+\s*}}/g, "______________________");
+  
+  return out;
+};
+
 // --- COMPONENTE DASHBOARD (ADMIN) ---
 const Dashboard = ({ 
   onSelectPlan, 
