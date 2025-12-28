@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc as firestoreDoc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
+const firestoreDoc = doc; // Mantém compatibilidade com códigos antigos
 import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
 import html2canvas from "html2canvas";
 
@@ -898,10 +899,11 @@ const handleGenerateDraft = () => {
       phone: newStudentPhone.replace(/\D/g, ''),
       ...extraData, 
       planId: selectedPlanForStudent,
-      contractText: draftContract, // Salva o texto que você editou no "Word"
+      contractText: draftContract || "", // Garante que não vá vazio
       pendingFields: studentFields,
       templateId: selectedTemplateId,
       status: 'pending',
+      createdAt: new Date().toISOString()
     };
 
     try {
@@ -1430,73 +1432,81 @@ const generateContractPDF = async (student) => {
                   {/* CORPO DO MODAL (DIVIDIDO) */}
                   <div className="flex-1 flex overflow-hidden">
                     
-                    {/* --- PASSO 1: FORMULÁRIO DE DADOS --- */}
+                    {/* --- PASSO 1: FORMULÁRIO DE DADOS (VISUALIZAR/EDITAR) --- */}
                     {approvalStep === 1 && (
-                        <>
-                            {/* COLUNA ESQUERDA: DADOS */}
-                            <div className="w-1/3 bg-gray-50 p-6 border-r border-gray-200 overflow-y-auto space-y-5">
+                        <div className="w-full h-full overflow-y-auto bg-gray-50 p-6">
+                            <div className="max-w-4xl mx-auto space-y-6">
+                                
+                                {/* BLOCO 1: DADOS BÁSICOS */}
                                 <div className="space-y-3">
                                     <label className="text-xs font-bold text-gray-400 uppercase">Dados Básicos</label>
-                                    <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full p-2 border rounded bg-white" placeholder="Nome Completo"/>
-                                    <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-2 border rounded bg-white" placeholder="WhatsApp"/>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full p-3 border rounded-lg bg-white shadow-sm" placeholder="Nome Completo"/>
+                                        <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-3 border rounded-lg bg-white shadow-sm" placeholder="WhatsApp"/>
+                                    </div>
                                 </div>
 
-                                <div className="bg-white p-4 rounded-lg border border-gray-300 shadow-sm space-y-3">
-                                    <h4 className="font-bold text-gray-700 text-xs uppercase border-b pb-2 mb-2 flex items-center gap-2">
-                                        <FileText className="w-3 h-3"/> Dados Cadastrais (Editável)
+                                {/* BLOCO 2: DADOS CADASTRAIS */}
+                                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                                    <h4 className="font-bold text-gray-700 text-sm uppercase border-b pb-2 mb-2 flex items-center gap-2">
+                                        <FileText className="w-4 h-4"/> Dados Cadastrais (Editável)
                                     </h4>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <input type="text" placeholder="CPF" value={extraData.cpf} onChange={e => setExtraData({...extraData, cpf: e.target.value})} className="w-full p-2 border rounded text-sm"/>
-                                        <input type="text" placeholder="RG" value={extraData.rg} onChange={e => setExtraData({...extraData, rg: e.target.value})} className="w-full p-2 border rounded text-sm"/>
-                                        <input type="date" value={extraData.birthDate} onChange={e => setExtraData({...extraData, birthDate: e.target.value})} className="w-full p-2 border rounded text-sm"/>
-                                        <input type="text" placeholder="Profissão" value={extraData.profession} onChange={e => setExtraData({...extraData, profession: e.target.value})} className="w-full p-2 border rounded text-sm"/>
-                                        <input type="text" placeholder="Endereço Completo" value={extraData.address} onChange={e => setExtraData({...extraData, address: e.target.value})} className="w-full p-2 border rounded text-sm col-span-2"/>
-                                        <input type="text" placeholder="Email" value={extraData.email} onChange={e => setExtraData({...extraData, email: e.target.value})} className="w-full p-2 border rounded text-sm col-span-2"/>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <input type="text" placeholder="CPF" value={extraData.cpf} onChange={e => setExtraData({...extraData, cpf: e.target.value})} className="w-full p-3 border rounded-lg text-sm"/>
+                                        <input type="text" placeholder="RG" value={extraData.rg} onChange={e => setExtraData({...extraData, rg: e.target.value})} className="w-full p-3 border rounded-lg text-sm"/>
+                                        <input type="date" value={extraData.birthDate} onChange={e => setExtraData({...extraData, birthDate: e.target.value})} className="w-full p-3 border rounded-lg text-sm"/>
+                                        <input type="text" placeholder="Profissão" value={extraData.profession} onChange={e => setExtraData({...extraData, profession: e.target.value})} className="w-full p-3 border rounded-lg text-sm"/>
+                                        <input type="text" placeholder="Endereço Completo" value={extraData.address} onChange={e => setExtraData({...extraData, address: e.target.value})} className="w-full p-3 border rounded-lg text-sm md:col-span-2"/>
+                                        <input type="text" placeholder="Email" value={extraData.email} onChange={e => setExtraData({...extraData, email: e.target.value})} className="w-full p-3 border rounded-lg text-sm md:col-span-2"/>
                                     </div>
+                                    
                                     {/* Botão de Salvar Apenas Dados */}
                                     {editingStudentId && (
-                                        <button onClick={handleSaveDataOnly} className="w-full py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded hover:bg-blue-100 flex items-center justify-center gap-2 border border-blue-200">
-                                            <Save className="w-3 h-3"/> Salvar Correções no Banco
+                                        <button onClick={handleSaveDataOnly} className="w-full py-3 bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-2 border border-blue-200 mt-4 transition-colors">
+                                            <Save className="w-4 h-4"/> Salvar Alterações nos Dados
                                         </button>
                                     )}
                                 </div>
 
-                                <div className="space-y-3 border-t pt-4">
-                                    <label className="text-xs font-bold text-gray-400 uppercase">Configuração do Contrato</label>
-                                    <select value={selectedPlanForStudent} onChange={(e) => setSelectedPlanForStudent(e.target.value)} className="w-full p-2 border rounded bg-white">
-                                        <option value="">Selecione o Fluxo...</option>
-                                        {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                    </select>
-                                    <select value={selectedTemplateId} onChange={(e) => {setSelectedTemplateId(e.target.value); setAdminFieldValues({});}} className="w-full p-2 border rounded bg-white font-bold text-blue-800">
-                                        <option value="">Selecione o Modelo...</option>
-                                        {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                                    </select>
-                                </div>
-
-                                {selectedTemplateId && (
-                                    <div className="bg-yellow-50 p-4 rounded border border-yellow-200 animate-in fade-in">
-                                        <h4 className="text-xs font-bold text-yellow-700 uppercase mb-2">Variáveis de Negociação</h4>
-                                        {templates.find(t => t.id === selectedTemplateId)?.fields?.filter(f => f.owner === 'admin').map((field, idx) => (
-                                            <div key={idx} className="mb-2">
-                                                <label className="block text-[10px] font-bold text-gray-500 uppercase">{field.label}</label>
-                                                <input type={field.type === 'date' ? 'date' : 'text'} value={adminFieldValues[field.key] || ''} onChange={(e) => setAdminFieldValues({...adminFieldValues, [field.key]: e.target.value})} className="w-full p-2 border border-yellow-300 rounded bg-white text-sm font-medium"/>
-                                            </div>
-                                        ))}
+                                {/* BLOCO 3: CONFIGURAÇÃO DO CONTRATO */}
+                                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                                    <h4 className="font-bold text-gray-700 text-sm uppercase border-b pb-2 mb-2 flex items-center gap-2">
+                                        <Settings className="w-4 h-4"/> Configuração do Contrato
+                                    </h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-gray-400 uppercase">Fluxo de Onboarding</label>
+                                            <select value={selectedPlanForStudent} onChange={(e) => setSelectedPlanForStudent(e.target.value)} className="w-full p-3 border rounded-lg bg-white">
+                                                <option value="">Selecione o Fluxo...</option>
+                                                {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-gray-400 uppercase">Modelo de Contrato</label>
+                                            <select value={selectedTemplateId} onChange={(e) => {setSelectedTemplateId(e.target.value); setAdminFieldValues({});}} className="w-full p-3 border rounded-lg bg-white font-bold text-blue-800">
+                                                <option value="">Selecione o Modelo...</option>
+                                                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                            </select>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
 
-                            {/* COLUNA DIREITA: PRÉVIA ESTÁTICA (AVISO) */}
-                            <div className="w-2/3 p-8 bg-gray-100 overflow-y-auto flex flex-col items-center justify-center">
-                                <div className="w-[210mm] min-h-[297mm] bg-white shadow-2xl p-[20mm] text-gray-400 select-none opacity-60 flex flex-col items-center justify-center border border-gray-300 text-center gap-4">
-                                    <FileText className="w-16 h-16 opacity-20"/>
-                                    <p className="text-sm font-medium">
-                                        A visualização e edição final do contrato<br/>aparecerão na próxima etapa.
-                                    </p>
-                                    <p className="text-xs">Preencha os dados à esquerda e clique em "Próximo".</p>
+                                    {selectedTemplateId && (
+                                        <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 animate-in fade-in mt-4">
+                                            <h4 className="text-xs font-bold text-yellow-700 uppercase mb-3">Variáveis de Negociação (Valores, Datas, etc)</h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {templates.find(t => t.id === selectedTemplateId)?.fields?.filter(f => f.owner === 'admin').map((field, idx) => (
+                                                    <div key={idx}>
+                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">{field.label}</label>
+                                                        <input type={field.type === 'date' ? 'date' : 'text'} value={adminFieldValues[field.key] || ''} onChange={(e) => setAdminFieldValues({...adminFieldValues, [field.key]: e.target.value})} className="w-full p-2 border border-yellow-300 rounded bg-white text-sm font-medium"/>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
+
                             </div>
-                        </>
+                        </div>
                     )}
 
                     {/* --- PASSO 2: EDITOR FINAL (WORD) --- */}
@@ -1587,21 +1597,31 @@ const generateContractPDF = async (student) => {
                             )}
                           </td>
                           <td className="p-4 text-right flex justify-end gap-2">
-                            {student.status === 'signed' && (
-                                <button onClick={() => generateContractPDF(student)} className="p-2 border border-gray-200 rounded-lg text-green-600 hover:bg-green-50 hover:border-green-200" title="Baixar PDF">
-                                    <FileSignature className="w-4 h-4" />
-                                </button>
-                            )}
-                            <button onClick={() => copyStudentLink(student.id)} className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50" title="Link">
-                                <Share2 className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => {if(confirm('Remover?')) onDeleteStudent(student.id)}} className="p-2 border border-gray-200 rounded-lg text-gray-400 hover:bg-red-50">
-                                <Trash2 className="w-4 h-4" />
-                            </button>
+                              {/* Botão Editar/Visualizar (NOVO) */}
+                              <button onClick={() => openApproveModal(student)} className="p-2 border border-gray-200 rounded-lg text-blue-600 hover:bg-blue-50" title="Editar/Ver Dados">
+                                <Edit className="w-4 h-4" />
+                              </button>
+
+                              {/* Botão PDF */}
+                              {student.status === 'signed' && (
+                                  <button onClick={() => generateContractPDF(student)} className="p-2 border border-gray-200 rounded-lg text-green-600 hover:bg-green-50 hover:border-green-200" title="Baixar PDF">
+                                      <FileSignature className="w-4 h-4" />
+                                  </button>
+                              )}
+                              
+                              {/* Botão Link */}
+                              <button onClick={() => copyStudentLink(student.id)} className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50" title="Link">
+                                  <Share2 className="w-4 h-4" />
+                              </button>
+                              
+                              {/* Botão Excluir */}
+                              <button onClick={() => {if(confirm('Remover?')) onDeleteStudent(student.id)}} className="p-2 border border-gray-200 rounded-lg text-gray-400 hover:bg-red-50">
+                                  <Trash2 className="w-4 h-4" />
+                              </button>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
+                      ))}                    
+                    </tbody>                               
                   </table>
                 </div>
               )}
@@ -2220,12 +2240,22 @@ useEffect(() => {
   const onCreateStudent = async (data) => {
     if (!db) return;
     try {
-      const docRef = doc(collection(db, "students")); 
+      // Verificação de segurança: não deixa criar se faltar nome ou plano
+      if (!data.name || !data.planId) {
+        alert("Erro: Nome do aluno ou Plano não selecionados.");
+        return;
+      }
+
+      const docRef = firestoreDoc(collection(db, "students")); 
       const finalData = { ...data, id: docRef.id };
+      
       await setDoc(docRef, finalData);
       await loadAllStudents();
       alert("Convite criado com sucesso!");
-    } catch (e) { console.error(e); alert("Erro ao criar convite"); }
+    } catch (e) { 
+      console.error("ERRO DETALHADO FIREBASE:", e); // Isso vai nos dizer o motivo real no console do navegador
+      alert("Erro ao criar convite: " + e.message); 
+    }
   };
 
   const handleDeleteStudent = async (id) => {
