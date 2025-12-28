@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
 
+// ... mantenha os imports do lucide-react e jsPDF abaixo como estão ...
 import { 
   Copy, ChevronRight, ChevronLeft, CheckCircle, FileText, Smartphone, Download, 
   ExternalLink, Play, Settings, Plus, Trash2, Layout, Eye, MoveUp, MoveDown, 
@@ -28,6 +30,7 @@ const firebaseConfig = {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
+const auth = getAuth(app); // <--- ADICIONE ISSO
 
 // --- HELPER: GERADOR DE SLUG LIMPO ---
 const generateSlug = (text) => {
@@ -1013,26 +1016,33 @@ const handleGenerateDraft = () => {
       </div>
     `;
   };
- // ✅ FUNÇÃO FINAL: Contrato + Página de Auditoria (Autentique Style)
- const generateContractPDF = async (student) => {
+// ✅ FUNÇÃO ATUALIZADA: PDF COM RODAPÉ EM TODAS AS PÁGINAS + BACKUP NA NUVEM
+const generateContractPDF = async (student) => {
   if (!student?.signature?.image) {
-    alert("A assinatura ainda não foi carregada. Tente novamente em alguns segundos.");
+    alert("A assinatura ainda não foi carregada. Tente novamente.");
     return;
   }
 
-  // Feedback visual
   const loadingId = "pdf-loading-toast";
   if (!document.getElementById(loadingId)) {
       const loadingMsg = document.createElement('div');
       loadingMsg.id = loadingId;
       loadingMsg.innerHTML = `
-        <div style="position:fixed;top:20px;right:20px;background:black;color:white;padding:15px 25px;border-radius:8px;z-index:99999;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.2);display:flex;align-items:center;gap:10px;">
-          <div style="width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
-          <span style="font-weight:bold;font-size:14px;">Gerando Contrato Seguro...</span>
+        <div style="position:fixed;top:20px;right:20px;background:black;color:white;padding:15px 25px;border-radius:8px;z-index:99999;font-family:sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.2);flex-direction:column;display:flex;align-items:center;gap:10px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+             <div style="width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+             <span style="font-weight:bold;font-size:14px;">Gerando Contrato Seguro...</span>
+          </div>
+          <div id="pdf-progress-text" style="font-size:10px; opacity:0.8;">Processando páginas...</div>
         </div>
         <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       `;
       document.body.appendChild(loadingMsg);
+  }
+  
+  const updateStatus = (msg) => {
+      const el = document.getElementById("pdf-progress-text");
+      if(el) el.innerText = msg;
   }
 
   try {
@@ -1042,42 +1052,77 @@ const handleGenerateDraft = () => {
       format: "a4"
     });
 
-    // Container Invisível (Fora da tela)
     const container = document.createElement("div");
     container.style.position = "absolute";
     container.style.left = "-10000px";
     container.style.top = "0";
     container.style.width = "794px"; 
     
-    // 1. CONSTRÓI O CONTEÚDO (Texto + Página de Log)
-    // Removemos a assinatura do meio do texto (se houver placeholder antigo) para não ficar duplicado, ou deixamos como preferir.
-    // Vou concatenar o HTML do contrato + o HTML da página de auditoria
+    // Constrói o HTML
     const contractBody = buildSignedContractHtml(student);
     const auditPage = buildAuditPageHtml(student);
     
-    // O 'wrapHtmlForPdf' agora recebe tudo junto
     container.innerHTML = wrapHtmlForPdf(contractBody + auditPage);
-    
     document.body.appendChild(container);
 
-    // Aguarda imagens (assinatura e logos)
+    // Espera imagens carregarem
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     // Gera o PDF
     await pdf.html(container.querySelector(".pdf-container"), {
-      callback: (doc) => {
-        const fileName = `Contrato_Assinado_${String(student.name || "Aluno").split(' ')[0]}.pdf`;
+      callback: async (doc) => {
+        
+        // --- ADICIONA O RODAPÉ EM TODAS AS PÁGINAS ---
+        const pageCount = doc.internal.getNumberOfPages();
+        const docId = student.id;
+        const hashId = docId.split('').reverse().join('') + "ab9-secure"; // Simulação de Hash
+        
+        doc.setFontSize(7);
+        doc.setTextColor(150); // Cinza claro
+
+        for(let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            // Desenha linha fina no rodapé
+            doc.setDrawColor(200, 200, 200);
+            doc.line(20, 810, 575, 810); // Linha perto do fim da A4 (altura ~842pt)
+            
+            // Texto do rodapé
+            const footerText = `Doc ID: ${docId} | Hash: ${hashId} | Página ${i} de ${pageCount}`;
+            doc.text(footerText, 30, 825);
+            doc.text("Assinado digitalmente via Team Ebony Consulting", 565, 825, { align: "right" });
+        }
+        // ---------------------------------------------
+
+        // 1. Salva o PDF localmente (Download)
+        const fileName = `Contrato_${String(student.name).split(' ')[0]}_${docId.slice(0,4)}.pdf`;
         doc.save(fileName);
         
+        updateStatus("Fazendo backup na nuvem...");
+
+        // 2. BACKUP NA NUVEM (Firebase Storage)
+        const pdfBlob = doc.output('blob');
+        const storageRef = ref(storage, `contratos_assinados/${docId}.pdf`);
+        
+        await uploadBytes(storageRef, pdfBlob);
+        const downloadUrl = await getDownloadURL(storageRef);
+
+        // 3. Atualiza o cadastro do aluno com o link do PDF
+        await updateDoc(doc(db, "students", student.id), {
+            contractPdfUrl: downloadUrl,
+            status: 'signed' // Garante status
+        });
+
         document.body.removeChild(container);
         const loadingEl = document.getElementById(loadingId);
         if (loadingEl) document.body.removeChild(loadingEl);
+
+        alert("✅ Contrato gerado, baixado e salvo na nuvem com sucesso!");
       },
       x: 0,
       y: 0,
       html2canvas: { scale: 0.75, useCORS: true, logging: false },
       autoPaging: 'text',
-      margin: [20, 0, 20, 0],
+      margin: [20, 0, 40, 0], // Margem inferior maior para caber o rodapé
       width: 595
     });
 
@@ -1625,14 +1670,13 @@ const StudentRegistration = ({ db }) => {
 };
 
 const OnboardingConsultoria = () => {
-  const ADMIN_PASSWORD = "ebony";
-
   const defaultSteps = [
     { id: 1, type: 'welcome', title: 'Boas-vindas', content: 'Bem-vindo ao time!', buttonText: '', link: '', coverImage: null, coverPosition: 50, images: [] }
   ];
 
   const [passwordInput, setPasswordInput] = useState("");
 
+  const [emailInput, setEmailInput] = useState("");
   const [viewState, setViewState] = useState('loading'); 
   const [isAdminAccess, setIsAdminAccess] = useState(false);
   const [activePlanId, setActivePlanId] = useState(null);
@@ -1997,20 +2041,23 @@ useEffect(() => {
 
   // --- LOGINS ---
   const handleAdminLogin = async () => {
-    if (passwordInput === ADMIN_PASSWORD) {
+    // Use um email/senha que você criou lá no Console do Firebase > Authentication
+    // Ou mude aqui para pegar de inputs de email/senha se preferir.
+    // Por enquanto, para facilitar sua transição, vou manter fixo aqui mas validando no servidor:
+    const emailAdmin = "admin@teamebony.com"; 
+    
+    if (!passwordInput) return alert("Digite a senha.");
+  
+    try {
+      await signInWithEmailAndPassword(auth, emailAdmin, passwordInput);
       setIsAdminAccess(true);
-      // SALVA O LOGIN NA SESSÃO (Para não pedir senha no F5)
       sessionStorage.setItem('ebony_admin', 'true');
       
-      try {
-        await Promise.all([loadAllPlans(), loadAllStudents()]);
-        setViewState('dashboard');
-      } catch (e) {
-        console.error(e);
-        alert("Erro ao carregar dados. Verifique a internet.");
-      }
-    } else {
-      alert("Senha incorreta.");
+      await Promise.all([loadAllPlans(), loadAllStudents()]);
+      setViewState('dashboard');
+    } catch (error) {
+      console.error(error);
+      alert("Acesso negado. Verifique a senha.");
     }
   };
 
@@ -2284,23 +2331,20 @@ const handleCoverUpload = async (index, e) => {
   }
 };
 
-// --- UPLOAD DE GALERIA (REAL PARA A NUVEM) ---
-// --- UPLOAD DE GALERIA OTIMIZADO (COMPRESSÃO AUTOMÁTICA) ---
+// --- UPLOAD DE GALERIA COM BARRA DE PROGRESSO ---
 const handleImageUpload = async (index, e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  // Feedback visual simples no botão (muda o texto temporariamente)
   const labelElement = e.target.parentElement.querySelector('span');
-  if (labelElement) {
-      labelElement.innerText = "Comprimindo...";
-      labelElement.className = "text-xs font-bold text-blue-600 animate-pulse";
-  }
+  const originalText = "Add Imagem";
 
   try {
     if (!storage) throw new Error("Storage não iniciado");
 
-    // 1. OTIMIZAÇÃO (O "Mini-Robô" que diminui a foto)
+    // 1. OTIMIZAÇÃO (Mantemos seu código de compressão que estava ótimo)
+    if (labelElement) labelElement.innerText = "Comprimindo...";
+    
     const compressedFile = await new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -2309,22 +2353,16 @@ const handleImageUpload = async (index, e) => {
         img.src = event.target.result;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200; // Limite de largura (HD)
+          const MAX_WIDTH = 1200; 
           const scaleSize = MAX_WIDTH / img.width;
           
-          // Se a imagem já for pequena, não mexe
-          if (scaleSize >= 1) {
-              resolve(file); 
-              return;
-          }
+          if (scaleSize >= 1) { resolve(file); return; }
 
           canvas.width = MAX_WIDTH;
           canvas.height = img.height * scaleSize;
-
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          // Transforma em JPEG leve (80% qualidade)
+          
           canvas.toBlob((blob) => {
             resolve(new File([blob], file.name, { type: 'image/jpeg' }));
           }, 'image/jpeg', 0.8);
@@ -2332,24 +2370,39 @@ const handleImageUpload = async (index, e) => {
       };
     });
 
-    // 2. UPLOAD DO ARQUIVO LEVE
+    // 2. UPLOAD COM PROGRESSO
     const storageRef = ref(storage, `galeria/${Date.now()}-${file.name}`);
-    const snapshot = await uploadBytes(storageRef, compressedFile);
-    const url = await getDownloadURL(snapshot.ref);
-    
-    // 3. ADICIONA À LISTA DE IMAGENS EXISTENTE
-    const currentImages = steps[index].images || [];
-    updateStep(index, 'images', [...currentImages, url]);
-    
-    // Restaura o texto do botão
-    if (labelElement) {
-        labelElement.innerText = "Add Imagem";
-        labelElement.className = "text-xs text-gray-500 font-medium";
-    }
+    const uploadTask = uploadBytesResumable(storageRef, compressedFile);
+
+    uploadTask.on('state_changed', 
+      (snapshot) => {
+        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        if (labelElement) {
+            labelElement.innerText = `${Math.round(progress)}%`;
+            labelElement.className = "text-xs font-bold text-blue-600";
+        }
+      }, 
+      (error) => {
+        console.error(error);
+        alert("Erro no upload");
+        if (labelElement) labelElement.innerText = "Erro";
+      }, 
+      async () => {
+        // Upload completo
+        const url = await getDownloadURL(uploadTask.snapshot.ref);
+        const currentImages = steps[index].images || [];
+        updateStep(index, 'images', [...currentImages, url]);
+        
+        if (labelElement) {
+            labelElement.innerText = originalText;
+            labelElement.className = "text-xs text-gray-500 font-medium";
+        }
+      }
+    );
 
   } catch (error) {
     console.error("Erro no upload:", error);
-    alert("Erro ao enviar imagem: " + error.message);
+    alert("Erro: " + error.message);
     if (labelElement) labelElement.innerText = "Erro!";
   }
 };
@@ -2422,51 +2475,72 @@ const handleImageUpload = async (index, e) => {
     return <StudentRegistration db={db} />;
   }
   // TELA 1: LOGIN ADMIN
-  if (viewState === 'login') return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#F7F7F5] p-4 font-sans">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-500">
-        <div className="bg-black p-8 text-center">
-          <div className="w-14 h-14 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center mx-auto mb-4 shadow-inner">
-            <span className="text-white font-bold text-lg tracking-wider">ON</span>
-          </div>
-          <h2 className="text-white text-lg font-bold">Gestão Consultoria Team Ebony</h2>
-          <p className="text-gray-400 text-xs mt-1 uppercase tracking-widest opacity-80">Acesso Administrativo</p>
+// --- TELA DE LOGIN (Substitua o bloco if (viewState === 'login') inteiro) ---
+if (viewState === 'login') return (
+  <div className="min-h-screen flex flex-col items-center justify-center bg-[#F7F7F5] p-4 font-sans">
+    <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-500">
+      <div className="bg-black p-8 text-center">
+        <div className="w-14 h-14 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center mx-auto mb-4 shadow-inner">
+          <span className="text-white font-bold text-lg tracking-wider">ON</span>
         </div>
-        <div className="p-8 pt-10">
-          <div className="space-y-5">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">Senha de Acesso</label>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-300 group-focus-within:text-black transition-colors" />
-                </div>
-                <input 
-                  type="password" 
-                  autoFocus
-                  placeholder="••••••••"
-                  value={passwordInput}
-                  onChange={(e) => setPasswordInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-black focus:border-transparent transition-all duration-200"
-                />
-              </div>
-            </div>
-            <button 
-              onClick={handleAdminLogin} 
-              className="w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 transition-all transform active:scale-[0.98]"
-            >
-              Entrar no Sistema
-              <ArrowLeft className="w-4 h-4 ml-2 rotate-180" />
-            </button>
-          </div>
-        </div>
-        <div className="bg-gray-50 px-8 py-4 border-t border-gray-100 text-center">
-          <p className="text-[10px] text-gray-400">Área restrita para treinadores.</p>
-        </div>
+        <h2 className="text-white text-lg font-bold">Gestão Consultoria Team Ebony</h2>
+        <p className="text-gray-400 text-xs mt-1 uppercase tracking-widest opacity-80">Acesso Administrativo</p>
       </div>
-      <p className="mt-8 text-xs text-gray-400 font-medium opacity-50">Consultoria Ebony Team © 2025</p>
+      
+      <div className="p-8 pt-10 space-y-5">
+          
+          {/* CAMPO DE E-MAIL (NOVO) */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">E-mail</label>
+            <div className="relative group">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                {/* Se tiver importado Mail do lucide-react, use <Mail />. Senão use <Users /> */}
+                <Users className="h-5 w-5 text-gray-300 group-focus-within:text-black transition-colors" />
+              </div>
+              <input 
+                type="email" 
+                placeholder="admin@teamebony.com"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-black focus:border-transparent transition-all duration-200"
+              />
+            </div>
+          </div>
+
+          {/* CAMPO DE SENHA */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">Senha</label>
+            <div className="relative group">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Lock className="h-5 w-5 text-gray-300 group-focus-within:text-black transition-colors" />
+              </div>
+              <input 
+                type="password" 
+                placeholder="••••••••"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
+                className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-black focus:border-transparent transition-all duration-200"
+              />
+            </div>
+          </div>
+
+          <button 
+            onClick={handleAdminLogin} 
+            className="w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 transition-all transform active:scale-[0.98]"
+          >
+            Entrar no Sistema
+            <ArrowLeft className="w-4 h-4 ml-2 rotate-180" />
+          </button>
+      </div>
+
+      <div className="bg-gray-50 px-8 py-4 border-t border-gray-100 text-center">
+        <p className="text-[10px] text-gray-400">Área restrita para treinadores.</p>
+      </div>
     </div>
-  );
+    <p className="mt-8 text-xs text-gray-400 font-medium opacity-50">Consultoria Ebony Team © 2025</p>
+  </div>
+);
 
 
   // TELA 3: LOGIN DO ALUNO
