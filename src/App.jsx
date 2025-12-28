@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from "firebase/firestore";
-const firestoreDoc = doc; // Mantém compatibilidade com códigos antigos
 import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
 import html2canvas from "html2canvas";
 
@@ -678,11 +677,32 @@ const Dashboard = ({
   onUpdatePlanMeta, onUpdatePlanColor,
   students, 
   onCreateStudent, 
-  onDeleteStudent, onReloadData
+  onDeleteStudent, 
+  onReloadData,
+  onToggleDelivery
 }) => {
 
   // Controle das Abas
-  const [activeTab, setActiveTab] = useState('flows'); 
+  const [activeTab, setActiveTab] = useState('flows');
+  // --- FILTROS DA LISTA ---
+  const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'delivered'
+  const [filterMonth, setFilterMonth] = useState(''); // Formato: '2025-12'
+
+  // Lógica de Filtragem
+  const filteredStudents = students.filter(student => {
+      // 1. Filtro de Status (Entregue/Pendente)
+      if (filterStatus === 'pending' && student.materialDelivered) return false;
+      if (filterStatus === 'delivered' && !student.materialDelivered) return false;
+
+      // 2. Filtro de Data (Mês/Ano)
+      if (filterMonth) {
+          // Pega só os 7 primeiros caracteres da data do aluno (ex: "2025-12")
+          const studentDate = student.createdAt ? student.createdAt.substring(0, 7) : "";
+          if (studentDate !== filterMonth) return false;
+      }
+      
+      return true;
+  }); 
 
   // --- ESTADOS DE FLUXOS ---
   const [newPlanName, setNewPlanName] = useState("");
@@ -1391,26 +1411,107 @@ const generateContractPDF = async (student) => {
         {/* --- ABA 2: MEUS ALUNOS --- */}
         {activeTab === 'students' && (
           <div className="animate-in fade-in duration-300">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-800">Lista de Alunos</h2>
-              <button onClick={() => {
+            
+            {/* --- DASHBOARD DE MÉTRICAS (NOVO) --- */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                {/* Card 1: Total */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total de Alunos</p>
+                            <h3 className="text-3xl font-black text-gray-900 mt-1">{students.length}</h3>
+                        </div>
+                        <div className="p-2 bg-gray-50 rounded-lg text-gray-400"><Users className="w-6 h-6"/></div>
+                    </div>
+                    <div className="mt-4 text-xs text-gray-400">Base total de cadastros</div>
+                </div>
+
+                {/* Card 2: Novos no Mês */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Novos (Mês)</p>
+                            <h3 className="text-3xl font-black text-gray-900 mt-1">
+                                {students.filter(s => s.createdAt && s.createdAt.startsWith(new Date().toISOString().slice(0, 7))).length}
+                            </h3>
+                        </div>
+                        <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><Plus className="w-6 h-6"/></div>
+                    </div>
+                    <div className="mt-4 text-xs text-blue-600 font-bold bg-blue-50 inline-block px-2 py-1 rounded self-start">
+                        Crescimento Mensal
+                    </div>
+                </div>
+
+                {/* Card 3: Pendente Assinatura */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-xs font-bold text-yellow-600 uppercase tracking-wider">Falta Assinar</p>
+                            <h3 className="text-3xl font-black text-yellow-600 mt-1">
+                                {students.filter(s => s.status !== 'signed').length}
+                            </h3>
+                        </div>
+                        <div className="p-2 bg-yellow-50 rounded-lg text-yellow-600"><FileSignature className="w-6 h-6"/></div>
+                    </div>
+                    <div className="mt-4 text-xs text-yellow-700">Aguardando contrato</div>
+                </div>
+
+                {/* Card 4: Pendente Entrega (Material) */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-xs font-bold text-red-600 uppercase tracking-wider">Falta Entregar</p>
+                            <h3 className="text-3xl font-black text-red-600 mt-1">
+                                {students.filter(s => !s.materialDelivered).length}
+                            </h3>
+                        </div>
+                        <div className="p-2 bg-red-50 rounded-lg text-red-600"><CheckCircle className="w-6 h-6"/></div>
+                    </div>
+                    <div className="mt-4 text-xs text-red-700">Alunos sem material</div>
+                </div>
+            </div>
+
+            {/* --- CABEÇALHO E FILTROS (MANTIDO) --- */}
+            <div className="flex flex-col md:flex-row justify-between items-end md:items-center mb-6 gap-4 border-t border-gray-200 pt-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Gerenciar Alunos</h2>
+                <p className="text-xs text-gray-500">Utilize os filtros para encontrar cadastros</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <input 
+                    type="month" 
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(e.target.value)}
+                    className="p-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm outline-none focus:border-black"
+                />
+                <select 
+                    value={filterStatus} 
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="p-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm outline-none focus:border-black font-medium"
+                >
+                    <option value="all">Todos os Status</option>
+                    <option value="pending">⏳ Pendentes de Entrega</option>
+                    <option value="delivered">✅ Material Entregue</option>
+                </select>
+                <button onClick={() => {
                   setEditingStudentId(null);
                   setNewStudentName("");
                   setNewStudentPhone("");
                   setExtraData({ cpf: '', rg: '', email: '', address: '', birthDate: '', profession: '' });
-                  setApprovalStep(1); // Garante que começa no passo 1 (Formulário)
+                  setApprovalStep(1);
                   setIsInviting(true);
-              }} className="bg-black text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-800 transition-colors shadow-lg">
-                <Plus className="w-5 h-5" /> Novo Aluno
-              </button>
+                }} className="bg-black text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-800 transition-colors shadow-lg ml-auto md:ml-0">
+                  <Plus className="w-5 h-5" /> <span className="hidden sm:inline">Novo Aluno</span>
+                </button>
+              </div>
             </div>
 
-            {/* --- MODAL DE APROVAÇÃO 2.0 (ESTILO AUTENTIQUE) --- */}
+            {/* --- MODAL (MANTIDO) --- */}
             {isInviting && (
               <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in duration-200">
                   
-                  {/* CABEÇALHO DO MODAL */}
                   <div className="bg-gray-100 border-b border-gray-300 p-4 flex justify-between items-center">
                     <div>
                         <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
@@ -1429,15 +1530,10 @@ const generateContractPDF = async (student) => {
                     </button>
                   </div>
 
-                  {/* CORPO DO MODAL (DIVIDIDO) */}
                   <div className="flex-1 flex overflow-hidden">
-                    
-                    {/* --- PASSO 1: FORMULÁRIO DE DADOS (VISUALIZAR/EDITAR) --- */}
                     {approvalStep === 1 && (
                         <div className="w-full h-full overflow-y-auto bg-gray-50 p-6">
                             <div className="max-w-4xl mx-auto space-y-6">
-                                
-                                {/* BLOCO 1: DADOS BÁSICOS */}
                                 <div className="space-y-3">
                                     <label className="text-xs font-bold text-gray-400 uppercase">Dados Básicos</label>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1445,8 +1541,6 @@ const generateContractPDF = async (student) => {
                                         <input type="text" value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} className="w-full p-3 border rounded-lg bg-white shadow-sm" placeholder="WhatsApp"/>
                                     </div>
                                 </div>
-
-                                {/* BLOCO 2: DADOS CADASTRAIS */}
                                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                     <h4 className="font-bold text-gray-700 text-sm uppercase border-b pb-2 mb-2 flex items-center gap-2">
                                         <FileText className="w-4 h-4"/> Dados Cadastrais (Editável)
@@ -1459,16 +1553,12 @@ const generateContractPDF = async (student) => {
                                         <input type="text" placeholder="Endereço Completo" value={extraData.address} onChange={e => setExtraData({...extraData, address: e.target.value})} className="w-full p-3 border rounded-lg text-sm md:col-span-2"/>
                                         <input type="text" placeholder="Email" value={extraData.email} onChange={e => setExtraData({...extraData, email: e.target.value})} className="w-full p-3 border rounded-lg text-sm md:col-span-2"/>
                                     </div>
-                                    
-                                    {/* Botão de Salvar Apenas Dados */}
                                     {editingStudentId && (
                                         <button onClick={handleSaveDataOnly} className="w-full py-3 bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-2 border border-blue-200 mt-4 transition-colors">
                                             <Save className="w-4 h-4"/> Salvar Alterações nos Dados
                                         </button>
                                     )}
                                 </div>
-
-                                {/* BLOCO 3: CONFIGURAÇÃO DO CONTRATO */}
                                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                     <h4 className="font-bold text-gray-700 text-sm uppercase border-b pb-2 mb-2 flex items-center gap-2">
                                         <Settings className="w-4 h-4"/> Configuração do Contrato
@@ -1489,7 +1579,6 @@ const generateContractPDF = async (student) => {
                                             </select>
                                         </div>
                                     </div>
-
                                     {selectedTemplateId && (
                                         <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 animate-in fade-in mt-4">
                                             <h4 className="text-xs font-bold text-yellow-700 uppercase mb-3">Variáveis de Negociação (Valores, Datas, etc)</h4>
@@ -1504,79 +1593,58 @@ const generateContractPDF = async (student) => {
                                         </div>
                                     )}
                                 </div>
-
                             </div>
                         </div>
                     )}
-
-                    {/* --- PASSO 2: EDITOR FINAL (WORD) --- */}
                     {approvalStep === 2 && (
                         <div className="w-full h-full bg-gray-200 flex justify-center overflow-hidden">
-                             {/* Aqui o contrato já vem montado para você editar se quiser */}
                              <RichTextEditor isA4={true} value={draftContract} onChange={setDraftContract} />
                         </div>
                     )}
-
                   </div>
-
-                  {/* RODAPÉ: BOTÕES DE AÇÃO */}
                   <div className="bg-white border-t border-gray-300 p-4 flex justify-end gap-3 z-50">
-                    <button 
-                        onClick={() => setIsInviting(false)} 
-                        className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-bold transition-colors text-xs mr-auto"
-                    >
-                        Cancelar
-                    </button>
-
+                    <button onClick={() => setIsInviting(false)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-bold transition-colors text-xs mr-auto">Cancelar</button>
                     {approvalStep === 1 ? (
-                        <button 
-                            onClick={handleGenerateDraft} 
-                            className="px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 shadow-lg flex items-center gap-2"
-                        >
+                        <button onClick={handleGenerateDraft} className="px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 shadow-lg flex items-center gap-2">
                             Próximo: Revisar Minuta <ChevronRight className="w-4 h-4"/>
                         </button>
                     ) : (
                         <>
-                            <button 
-                                onClick={() => setApprovalStep(1)} 
-                                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50"
-                            >
-                                Voltar e Editar Dados
-                            </button>
-                            <button 
-                                onClick={handleFinalizeInvite} 
-                                className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-lg flex items-center gap-2"
-                            >
+                            <button onClick={() => setApprovalStep(1)} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-50">Voltar e Editar Dados</button>
+                            <button onClick={handleFinalizeInvite} className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-lg flex items-center gap-2">
                                 <CheckCircle className="w-4 h-4"/> Aprovar e Enviar Link
                             </button>
                         </>
                     )}
                   </div>
-
                 </div>
               </div>
             )}
 
-            {/* Lista de Alunos na Tabela */}
+            {/* TABELA DE ALUNOS (MANTIDA) */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              {students.length === 0 ? (
+              {filteredStudents.length === 0 ? (
                 <div className="p-12 text-center text-gray-500">
                   <Users className="w-12 h-12 mx-auto mb-3 opacity-20"/>
-                  <p>Nenhum aluno cadastrado ainda.</p>
+                  <p>Nenhum aluno encontrado com estes filtros.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
+                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Data Entrada</th>
                         <th className="p-4 text-xs font-bold text-gray-500 uppercase">Aluno</th>
                         <th className="p-4 text-xs font-bold text-gray-500 uppercase">Status</th>
                         <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {students.map((student) => (
+                      {filteredStudents.map((student) => (
                         <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="p-4 text-xs text-gray-500 font-mono">
+                             {student.createdAt ? new Date(student.createdAt).toLocaleDateString('pt-BR') : '-'}
+                          </td>
                           <td className="p-4">
                             <div className="font-bold text-gray-900">{student.name}</div>
                             <div className="text-xs text-gray-400">{student.phone}</div>
@@ -1596,32 +1664,47 @@ const generateContractPDF = async (student) => {
                                 </span>
                             )}
                           </td>
-                          <td className="p-4 text-right flex justify-end gap-2">
-                              {/* Botão Editar/Visualizar (NOVO) */}
-                              <button onClick={() => openApproveModal(student)} className="p-2 border border-gray-200 rounded-lg text-blue-600 hover:bg-blue-50" title="Editar/Ver Dados">
+                          <td className="p-4 text-right flex justify-end gap-2 items-center">
+                              
+                              {/* Botão Entregue (Verde) */}
+                              <button 
+                                onClick={() => onToggleDelivery(student)}
+                                className={`group flex items-center gap-1 px-3 py-1.5 rounded-lg border transition-all ${
+                                    student.materialDelivered 
+                                    ? 'bg-green-600 border-green-600 text-white shadow-md'
+                                    : 'bg-white border-gray-300 text-gray-400 hover:border-green-400 hover:text-green-600'
+                                }`}
+                                title={student.materialDelivered ? "Material já entregue" : "Marcar como entregue"}
+                              >
+                                  {student.materialDelivered ? <CheckCircle className="w-4 h-4 fill-current" /> : <CheckCircle className="w-4 h-4" />}
+                                  <span className="text-[10px] font-bold uppercase hidden xl:inline">
+                                      {student.materialDelivered ? "Entregue" : "Pendente"}
+                                  </span>
+                              </button>
+
+                              <div className="w-px h-6 bg-gray-200 mx-1"></div>
+
+                              <button onClick={() => openApproveModal(student)} className="p-2 border border-gray-200 rounded-lg text-blue-600 hover:bg-blue-50" title="Editar">
                                 <Edit className="w-4 h-4" />
                               </button>
 
-                              {/* Botão PDF */}
                               {student.status === 'signed' && (
-                                  <button onClick={() => generateContractPDF(student)} className="p-2 border border-gray-200 rounded-lg text-green-600 hover:bg-green-50 hover:border-green-200" title="Baixar PDF">
+                                  <button onClick={() => generateContractPDF(student)} className="p-2 border border-gray-200 rounded-lg text-green-600 hover:bg-green-50 hover:border-green-200" title="PDF">
                                       <FileSignature className="w-4 h-4" />
                                   </button>
                               )}
                               
-                              {/* Botão Link */}
                               <button onClick={() => copyStudentLink(student.id)} className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50" title="Link">
                                   <Share2 className="w-4 h-4" />
                               </button>
                               
-                              {/* Botão Excluir */}
                               <button onClick={() => {if(confirm('Remover?')) onDeleteStudent(student.id)}} className="p-2 border border-gray-200 rounded-lg text-gray-400 hover:bg-red-50">
                                   <Trash2 className="w-4 h-4" />
                               </button>
                           </td>
                         </tr>
                       ))}                    
-                    </tbody>                               
+                    </tbody>
                   </table>
                 </div>
               )}
@@ -2240,20 +2323,21 @@ useEffect(() => {
   const onCreateStudent = async (data) => {
     if (!db) return;
     try {
-      // Verificação de segurança: não deixa criar se faltar nome ou plano
+      // Verificação de segurança
       if (!data.name || !data.planId) {
         alert("Erro: Nome do aluno ou Plano não selecionados.");
         return;
       }
 
-      const docRef = firestoreDoc(collection(db, "students")); 
-      const finalData = { ...data, id: docRef.id };
+      // CORREÇÃO AQUI: Usando 'doc' e 'collection' diretamente
+      const newStudentRef = doc(collection(db, "students")); 
+      const finalData = { ...data, id: newStudentRef.id };
       
-      await setDoc(docRef, finalData);
+      await setDoc(newStudentRef, finalData);
       await loadAllStudents();
       alert("Convite criado com sucesso!");
     } catch (e) { 
-      console.error("ERRO DETALHADO FIREBASE:", e); // Isso vai nos dizer o motivo real no console do navegador
+      console.error("ERRO FIREBASE:", e);
       alert("Erro ao criar convite: " + e.message); 
     }
   };
@@ -2265,7 +2349,30 @@ useEffect(() => {
       await loadAllStudents();
     } catch (e) { alert("Erro ao deletar"); }
   }
+  // --- FUNÇÃO DE CHECK (MATERIAL ENTREGUE) - NO LUGAR CERTO ---
+  const toggleMaterialDelivered = async (student) => {
+    if (!db) return;
 
+    const newStatus = !student.materialDelivered;
+
+    // 1. Atualiza visualmente NA HORA
+    setStudents(currentList => 
+        currentList.map(item => 
+            item.id === student.id ? { ...item, materialDelivered: newStatus } : item
+        )
+    );
+
+    try {
+        // 2. Salva no Banco de Dados (para não perder no F5)
+        await updateDoc(doc(db, "students", student.id), {
+            materialDelivered: newStatus
+        });
+    } catch (error) {
+        console.error("Erro ao salvar status:", error);
+        alert("Erro ao salvar no sistema. A alteração será desfeita.");
+        loadAllStudents(); 
+    }
+  };
   // --- FIRESTORE PLANOS ---
   const loadAllPlans = async () => {
     try {
@@ -2621,6 +2728,8 @@ const handleImageUpload = async (index, e) => {
         onCreateStudent={onCreateStudent}
         onDeleteStudent={handleDeleteStudent}
         onReloadData={loadAllStudents}
+
+        onToggleDelivery={toggleMaterialDelivered}
       />
     );
   }
