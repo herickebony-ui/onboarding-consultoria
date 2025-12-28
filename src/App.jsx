@@ -684,25 +684,40 @@ const Dashboard = ({
 
   // Controle das Abas
   const [activeTab, setActiveTab] = useState('flows');
-  // --- FILTROS DA LISTA ---
-  const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'delivered'
-  const [filterMonth, setFilterMonth] = useState(''); // Formato: '2025-12'
+  // --- FILTROS DA LISTA (ATUALIZADO: BUSCA + ASSINADO) ---
+  const [filterStatus, setFilterStatus] = useState('all'); 
+  const [filterMonth, setFilterMonth] = useState(''); 
+  const [searchTerm, setSearchTerm] = useState(''); // NOVO: Estado da busca
 
   // Lógica de Filtragem
   const filteredStudents = students.filter(student => {
-      // 1. Filtro de Status (Entregue/Pendente)
-      if (filterStatus === 'pending' && student.materialDelivered) return false;
-      if (filterStatus === 'delivered' && !student.materialDelivered) return false;
+      // 1. Filtro de Nome (Busca) - NOVO
+      if (searchTerm) {
+          const name = (student.name || "").toLowerCase();
+          const term = searchTerm.toLowerCase();
+          if (!name.includes(term)) return false;
+      }
 
-      // 2. Filtro de Data (Mês/Ano)
+      // 2. Filtro de Mês
       if (filterMonth) {
-          // Pega só os 7 primeiros caracteres da data do aluno (ex: "2025-12")
           const studentDate = student.createdAt ? student.createdAt.substring(0, 7) : "";
           if (studentDate !== filterMonth) return false;
       }
-      
+
+      // 3. Filtro de Status
+      if (filterStatus === 'all') return true;
+
+      // Status Material
+      if (filterStatus === 'pending') return !student.materialDelivered; // Quem NÃO recebeu
+      if (filterStatus === 'delivered') return student.materialDelivered; // Quem JÁ recebeu
+
+      // Status Contrato
+      if (filterStatus === 'em_analise') return student.status === 'em_analise';
+      if (filterStatus === 'waiting_sign') return student.status !== 'signed' && student.status !== 'em_analise';
+      if (filterStatus === 'signed') return student.status === 'signed'; // NOVO: Filtro Assinado
+
       return true;
-  }); 
+  });
 
   // --- ESTADOS DE FLUXOS ---
   const [newPlanName, setNewPlanName] = useState("");
@@ -1299,7 +1314,7 @@ const generateContractPDF = async (student) => {
           <div className="bg-white p-1 rounded-xl border border-gray-200 flex shadow-sm">
             <button onClick={() => setActiveTab('flows')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'flows' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>Meus Fluxos</button>
             <button onClick={() => setActiveTab('students')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'students' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><Users className="w-4 h-4"/> Meus Alunos</button>
-            <button onClick={() => setActiveTab('templates')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'templates' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><FileText className="w-4 h-4"/> Modelos</button>
+            <button onClick={() => setActiveTab('templates')} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'templates' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}><FileText className="w-4 h-4"/> Modelos de contrato</button>
           </div>
         </div>
 
@@ -1408,11 +1423,10 @@ const generateContractPDF = async (student) => {
           </div>
         )}
 
-        {/* --- ABA 2: MEUS ALUNOS --- */}
         {activeTab === 'students' && (
           <div className="animate-in fade-in duration-300">
             
-            {/* --- DASHBOARD DE MÉTRICAS (NOVO) --- */}
+            {/* --- DASHBOARD DE MÉTRICAS (MANTIDO) --- */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 {/* Card 1: Total */}
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
@@ -1471,29 +1485,49 @@ const generateContractPDF = async (student) => {
                 </div>
             </div>
 
-            {/* --- CABEÇALHO E FILTROS (MANTIDO) --- */}
-            <div className="flex flex-col md:flex-row justify-between items-end md:items-center mb-6 gap-4 border-t border-gray-200 pt-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-800">Gerenciar Alunos</h2>
-                <p className="text-xs text-gray-500">Utilize os filtros para encontrar cadastros</p>
-              </div>
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                
+                {/* 1. Busca por Nome (NOVO) */}
+                <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"/>
+                    <input 
+                        type="text" 
+                        placeholder="Buscar aluno..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-9 p-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm outline-none focus:border-black w-40"
+                    />
+                </div>
 
-              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                {/* 2. Filtro Data */}
                 <input 
                     type="month" 
                     value={filterMonth}
                     onChange={(e) => setFilterMonth(e.target.value)}
                     className="p-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm outline-none focus:border-black"
+                    title="Filtrar por mês de entrada"
                 />
+                
+                {/* 3. Filtro Status (COM OPÇÃO ASSINADO) */}
                 <select 
                     value={filterStatus} 
                     onChange={(e) => setFilterStatus(e.target.value)}
                     className="p-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm outline-none focus:border-black font-medium"
                 >
-                    <option value="all">Todos os Status</option>
-                    <option value="pending">⏳ Pendentes de Entrega</option>
-                    <option value="delivered">✅ Material Entregue</option>
+                    <option value="all">Todos os Alunos</option>
+                    
+                    <optgroup label="Status do Contrato">
+                        <option value="em_analise">📋 Analisar Cadastro</option>
+                        <option value="waiting_sign">✍️ Aguardando Assinatura</option>
+                        <option value="signed">✅ Contrato Assinado</option> {/* NOVO */}
+                    </optgroup>
+
+                    <optgroup label="Status do Material">
+                        <option value="pending">⏳ Material Pendente</option>
+                        <option value="delivered">✅ Material Entregue</option>
+                    </optgroup>
                 </select>
+
                 <button onClick={() => {
                   setEditingStudentId(null);
                   setNewStudentName("");
@@ -1505,7 +1539,6 @@ const generateContractPDF = async (student) => {
                   <Plus className="w-5 h-5" /> <span className="hidden sm:inline">Novo Aluno</span>
                 </button>
               </div>
-            </div>
 
             {/* --- MODAL (MANTIDO) --- */}
             {isInviting && (
