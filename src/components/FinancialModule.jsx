@@ -192,7 +192,7 @@ export default function FinancialModule({ students }) {
             setLoading(false);
         });
 
-        const qPlans = query(collection(db, 'plans'), orderBy('name'));
+        const qPlans = query(collection(db, 'plans'));
         const unsubPlans = onSnapshot(qPlans, (s) => {
             setPlans(s.docs.map(d => ({ id: d.id, ...d.data() })));
         });
@@ -202,51 +202,85 @@ export default function FinancialModule({ students }) {
 
     const studentsMap = useMemo(() => students.reduce((acc, s) => ({...acc, [s.id]: s}), {}), [students]);
 
-    // KPI ENGINE
+    // --- KPI ENGINE (INTELIGÊNCIA TEMPORAL CORRIGIDA) ---
     const stats = useMemo(() => {
         let revenueReal = 0;      
         let forecast = 0;
         let expiredInRange = 0;
         let renewedInRange = 0;
-        const activeStudentIds = new Set();
+        const activeStudentIds = new Set(); // Conjunto para não contar aluno duplicado
         
         records.forEach(r => {
-            const computed = getComputedStatus(r, todayISO); 
+            // Regra 1: Pausado não conta como Ativo (não consome energia)
+            if (r.status === 'Pausado') return;
+
             const value = parseFloat(r.netValue) || 0;
             const payISO = normalizeDate(r.payDate);
             const dueISO = normalizeDate(r.dueDate);
+            const startISO = normalizeDate(r.startDate);
 
-            if (payISO && isBetweenInclusive(payISO, dateRange.start, dateRange.end)) revenueReal += value;
+            // 1. Faturamento Real: Entrou dinheiro no período?
+            if (payISO && isBetweenInclusive(payISO, dateRange.start, dateRange.end)) {
+                revenueReal += value;
+            }
+
+            // 2. Previsão: Vence no período?
             if (dueISO && isBetweenInclusive(dueISO, dateRange.start, dateRange.end)) {
                 if (!payISO || isBetweenInclusive(payISO, dateRange.start, dateRange.end)) {
-                     if (computed.label !== 'INATIVO' && computed.label !== 'PAUSADO') forecast += value;
+                     forecast += value;
                 }
             }
-            if (['ATIVO', 'PAGO E NÃO INICIADO', 'RENOVA ESSE MÊS'].includes(computed.label)) {
-                if (r.studentId) activeStudentIds.add(r.studentId);
+
+            // 3. ALUNOS ATIVOS (Máquina do Tempo)
+            // A. Contrato estava vigente durante o período do filtro?
+            const isVigente = startISO && dueISO && 
+                              startISO <= dateRange.end && 
+                              dueISO >= dateRange.start;
+
+            // B. Estava em Onboarding? (Pagou DENTRO ou ANTES do período, e ainda não tinha data de início ou começou depois)
+            const isOnboarding = payISO && !startISO && 
+                                 payISO <= dateRange.end;
+
+            if ((isVigente || isOnboarding) && r.studentId) {
+                activeStudentIds.add(r.studentId);
             }
+
+            // 4. Retenção
             if (dueISO && isBetweenInclusive(dueISO, dateRange.start, dateRange.end)) {
                 expiredInRange++;
                 if (payISO) renewedInRange++;
             }
         });
+
         const retentionRate = expiredInRange > 0 ? Math.round((renewedInRange / expiredInRange) * 100) : 100;
         return { revenueReal, forecast, active: activeStudentIds.size, retention: retentionRate };
-    }, [records, dateRange, todayISO]);
+    }, [records, dateRange]);
 
-    // FILTRAGEM
+    // FILTRAGEM (COM LÓGICA DE VIGÊNCIA)
     const filteredRecords = useMemo(() => records.filter(r => {
+        // 1. Filtro de Texto (Nome)
         const sName = studentsMap[r.studentId]?.name || r.studentName || '';
         if (!sName.toLowerCase().includes(filters.search.toLowerCase())) return false;
 
+        // 2. Datas Relevantes
         const dueISO = normalizeDate(r.dueDate);
         const payISO = normalizeDate(r.payDate);
-        // Regra: Mostra se Venceu OU Pagou no período
-        const isDue = dueISO && isBetweenInclusive(dueISO, dateRange.start, dateRange.end);
-        const isPaid = payISO && isBetweenInclusive(payISO, dateRange.start, dateRange.end);
-        
-        if (!isDue && !isPaid) return false;
+        const startISO = normalizeDate(r.startDate);
 
+        // A. Aconteceu algo financeiro? (Pagou ou Venceu no período selecionado)
+        const isFinancialEvent = (dueISO && isBetweenInclusive(dueISO, dateRange.start, dateRange.end)) ||
+                                 (payISO && isBetweenInclusive(payISO, dateRange.start, dateRange.end));
+
+        // B. O contrato está "Vigente" (Ativo) durante esse período?
+        // Lógica: (Início do contrato <= Fim do Filtro) E (Fim do contrato >= Início do Filtro)
+        const isActiveInRange = startISO && dueISO &&
+                                (startISO <= dateRange.end) && 
+                                (dueISO >= dateRange.start);
+        
+        // REGRA FINAL: Mostra se teve evento financeiro OU se está vigente no período
+        if (!isFinancialEvent && !isActiveInRange) return false;
+
+        // 3. Filtro de Status (Dropdown)
         const computed = getComputedStatus(r, todayISO);
         if (filters.status !== 'all' && filters.status !== computed.label) return false;
 
@@ -281,20 +315,27 @@ export default function FinancialModule({ students }) {
         }
     };
 
-    // INTELIGÊNCIA DE DATA FINAL
+    // INTELIGÊNCIA DE DATA FINAL E STATUS
     const handleStartDateChange = (e) => {
         const newStart = e.target.value;
         let newDue = formData.dueDate;
+        let newStatus = formData.status;
 
-        // Se tiver duração salva, calcula o vencimento sozinho
+        // 1. Se tiver duração salva, calcula o vencimento sozinho
         if (formData.durationMonths) {
             newDue = addMonths(newStart, formData.durationMonths);
+        }
+
+        // 2. Se preencheu a data de início, já muda o status para ATIVO automaticamente
+        if (newStart) {
+            newStatus = 'ATIVO';
         }
 
         setFormData(prev => ({
             ...prev,
             startDate: newStart,
-            dueDate: newDue
+            dueDate: newDue,
+            status: newStatus // Atualiza o dropdown visualmente
         }));
     };
 
@@ -323,6 +364,7 @@ export default function FinancialModule({ students }) {
             studentId: sId, studentName: sName,
             planType: formData.planType, paymentMethod: formData.paymentMethod,
             grossValue: parseFloat(formData.grossValue), netValue: parseFloat(formData.netValue),
+            durationMonths: formData.durationMonths || null, // <--- A MEMÓRIA DA DURAÇÃO
             status: formData.status, startDate: formData.startDate, endDate: formData.dueDate,
             dueDate: formData.dueDate, payDate: formData.payDate || null, notes: formData.notes || ''
         };
