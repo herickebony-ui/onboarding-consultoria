@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  collection, doc, deleteDoc, updateDoc, addDoc,
-  query, writeBatch, limit, serverTimestamp, onSnapshot, orderBy 
-} from "firebase/firestore";
+    collection, doc, deleteDoc, updateDoc, addDoc,
+    query, writeBatch, limit, serverTimestamp, onSnapshot, orderBy,
+    where, getDocs // <--- ADICIONE ESTES DOIS SE NÃO TIVER
+  } from "firebase/firestore";
 import { 
   Wallet, Users, TrendingUp, Search, 
   Plus, X, Filter, History,
@@ -142,7 +143,22 @@ const FinancialService = {
     async createPlan(data) {
         return addDoc(collection(db, 'plans'), data);
     },
-    async deletePlan(planId) {
+    async updatePlan(planId, data) {
+        const ref = doc(db, 'plans', planId);
+        return updateDoc(ref, data);
+    },
+    // --- TRAVA DE SEGURANÇA: Só exclui se ninguém usar ---
+    async deletePlan(planId, planName) {
+        // 1. Verifica se existe algum pagamento usando esse nome de plano
+        const q = query(collection(db, 'payments'), where('planType', '==', planName), limit(1));
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+            // Se achou pelo menos 1, bloqueia e avisa
+            throw new Error(`BLOQUEADO: O plano "${planName}" não pode ser excluído pois existem registros financeiros vinculados a ele. Edite o nome ou o status, mas não exclua.`);
+        }
+
+        // 2. Se estiver limpo, manda bala
         return deleteDoc(doc(db, 'plans', planId));
     }
 };
@@ -169,6 +185,7 @@ export default function FinancialModule({ students }) {
     // Estados de Planos
     const [plans, setPlans] = useState([]);
     const [planModalOpen, setPlanModalOpen] = useState(false);
+    const [editingPlan, setEditingPlan] = useState(null);
 
     // Range de Datas (Padrão)
     const [dateRange, setDateRange] = useState(() => {
@@ -194,7 +211,11 @@ export default function FinancialModule({ students }) {
 
         const qPlans = query(collection(db, 'plans'));
         const unsubPlans = onSnapshot(qPlans, (s) => {
-            setPlans(s.docs.map(d => ({ id: d.id, ...d.data() })));
+            // Ordenação manual no Front-end (mais seguro para evitar erros de índice no Firebase)
+            const sortedPlans = s.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => a.name.localeCompare(b.name));
+            setPlans(sortedPlans);
         });
 
         return () => { unsubRec(); unsubPlans(); };
@@ -449,6 +470,12 @@ export default function FinancialModule({ students }) {
                                     <td className="p-4"><span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${status.color}`}>{status.label}</span></td>
                                     
                                     <td className="p-4">
+                                        {/* NOVO: Data de Início Pequena */}
+                                        <div className="text-[10px] text-gray-400 mb-1 font-medium">
+                                            Início: {formatDateBr(r.startDate)}
+                                        </div>
+
+                                        {/* VISUAL NOTION (Mantido) */}
                                         <div className="flex items-center gap-2">
                                             <span className="text-xl font-black text-gray-300 w-6 text-center">{badge.day}</span>
                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${badge.color}`}>{badge.name}</span>
@@ -456,8 +483,14 @@ export default function FinancialModule({ students }) {
                                     </td>
 
                                     <td className="p-4">
-                                        <div className="font-bold text-gray-700 text-xs">{r.planType}</div>
-                                        <div className="text-[10px] text-gray-400 uppercase tracking-wide bg-gray-100 px-1.5 py-0.5 rounded inline-block mt-1">{r.paymentMethod}</div>
+                                        {/* O fundo colorido agora vem do banco de dados */}
+                                        <div className={`font-bold text-xs inline-block px-2 py-0.5 rounded border 
+                                            ${plans.find(p => p.name === r.planType)?.color === 'green' ? 'bg-green-100 text-green-800 border-green-200' : 
+                                            plans.find(p => p.name === r.planType)?.color === 'yellow' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
+                                            'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                                            {r.planType}
+                                        </div>
+                                        <div className="text-[10px] text-gray-400 uppercase tracking-wide block mt-1">{r.paymentMethod}</div>
                                     </td>
                                     
                                     <td className="p-4">
@@ -476,42 +509,114 @@ export default function FinancialModule({ students }) {
                 </table>
             </div>
             
-            {/* MODAL PLANOS */}
+            {/* MODAL DE GERENCIAR PLANOS (COM EDIÇÃO E CORES) */}
             {planModalOpen && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center"><h3 className="font-bold text-gray-800">Gerenciar Planos</h3><button onClick={() => setPlanModalOpen(false)}><X size={20} className="text-gray-400"/></button></div>
-                        <div className="p-4 max-h-[300px] overflow-y-auto space-y-2">
-                            {plans.map(p => (
-                                <div key={p.id} className="flex justify-between items-center p-3 border rounded-lg bg-white shadow-sm">
-                                    <div><div className="font-bold text-sm text-gray-800">{p.name}</div><div className="text-xs text-gray-500">{p.durationMonths} meses • Liq: {formatCurrency(p.netValue)}</div></div>
-                                    <button onClick={() => { if(window.confirm("Excluir plano?")) FinancialService.deletePlan(p.id) }} className="text-red-300 hover:text-red-600 p-2"><X size={16}/></button>
+                        
+                        {/* Cabeçalho */}
+                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                            <h3 className="font-bold text-gray-800">Gerenciar Planos</h3>
+                            <button onClick={() => { setPlanModalOpen(false); setEditingPlan(null); }}><X size={20} className="text-gray-400"/></button>
+                        </div>
+
+                        {/* Lista de Planos Existentes */}
+                        <div className="p-4 max-h-[300px] overflow-y-auto space-y-2 bg-gray-50/50">
+                            {plans.sort((a,b) => a.name.localeCompare(b.name)).map(p => (
+                                <div key={p.id} className={`flex justify-between items-center p-3 border rounded-lg bg-white shadow-sm hover:border-black transition-colors ${editingPlan?.id === p.id ? 'ring-2 ring-black border-transparent' : ''}`}>
+                                    <div className="flex items-center gap-3">
+                                        {/* Bolinha da Cor */}
+                                        <div className={`w-3 h-3 rounded-full bg-${p.color || 'gray'}-400`}></div>
+                                        <div>
+                                            <div className="font-bold text-sm text-gray-800">{p.name}</div>
+                                            <div className="text-xs text-gray-500">{p.durationMonths} meses • Liq: {formatCurrency(p.netValue)}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1">
+                                        {/* Botão Editar (Mantido) */}
+                                        <button onClick={() => setEditingPlan(p)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16}/></button>
+                                        
+                                        {/* Botão Excluir (COM A NOVA TRAVA DE SEGURANÇA) */}
+                                        <button onClick={async () => { 
+                                            if(window.confirm(`Tem certeza que deseja excluir o plano "${p.name}"?`)) {
+                                                try {
+                                                    // Passa ID e Nome para verificar antes de apagar
+                                                    await FinancialService.deletePlan(p.id, p.name); 
+                                                } catch (error) {
+                                                    // Se der erro (estiver em uso), mostra o alerta
+                                                    alert(error.message); 
+                                                }
+                                            }
+                                        }} className="p-2 text-red-300 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir">
+                                            <X size={16}/>
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                             {plans.length === 0 && <p className="text-center text-xs text-gray-400 py-4">Nenhum plano cadastrado.</p>}
                         </div>
-                        <form onSubmit={(e) => {
+
+                        {/* Formulário de Cadastro/Edição */}
+                        <form onSubmit={async (e) => {
                             e.preventDefault();
                             const f = new FormData(e.target);
-                            FinancialService.createPlan({
+                            const planData = {
                                 name: f.get('name'), 
                                 durationMonths: parseInt(f.get('duration')),
                                 paymentMethod: f.get('method'),
                                 grossValue: parseFloat(f.get('gross')), 
-                                netValue: parseFloat(f.get('net'))
-                            });
+                                netValue: parseFloat(f.get('net')),
+                                color: f.get('color') // Salva a cor escolhida
+                            };
+
+                            if (editingPlan) {
+                                await FinancialService.updatePlan(editingPlan.id, planData);
+                                setEditingPlan(null); // Sai do modo edição
+                            } else {
+                                await FinancialService.createPlan(planData);
+                            }
                             e.target.reset();
-                        }} className="p-4 bg-gray-50 border-t space-y-3">
+                        }} className="p-5 bg-white border-t border-gray-100 space-y-3 shadow-[0_-5px_15px_rgba(0,0,0,0.02)] relative z-10">
+                            
+                            {/* Aviso de Edição */}
+                            {editingPlan && <div className="text-xs font-bold text-blue-600 mb-2 flex justify-between"><span>✏️ Editando: {editingPlan.name}</span> <button type="button" onClick={() => setEditingPlan(null)} className="underline text-gray-400 font-normal">Cancelar</button></div>}
+
                             <div className="grid grid-cols-3 gap-2">
-                                <input name="name" placeholder="Nome" className="col-span-2 w-full p-2 text-sm border rounded" required />
-                                <input name="duration" type="number" placeholder="Meses" className="w-full p-2 text-sm border rounded" required />
+                                <input name="name" defaultValue={editingPlan?.name} placeholder="Nome do Plano" className="col-span-2 w-full p-2 text-sm border border-gray-200 rounded focus:border-black outline-none" required />
+                                <input name="duration" type="number" defaultValue={editingPlan?.durationMonths} placeholder="Meses" className="w-full p-2 text-sm border border-gray-200 rounded focus:border-black outline-none" required />
                             </div>
-                            <select name="method" className="w-full p-2 text-sm border rounded"><option value="Pix">Pix</option><option value="Cartão">Cartão</option></select>
+                            
+                            {/* Seletor de Cores Expandido (Variações de Tom) */}
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 block">Etiqueta de Cor</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {[
+                                        'slate',   // Cinza
+                                        'red', 'rose', // Vermelhos
+                                        'orange', 'amber', 'yellow', 'lime', // ☀️ 4 Tons de Amarelo/Dourado
+                                        'lime', 'green', 'emerald', 'teal', // 🌿 4 Tons de Verde
+                                        'cyan', 'sky', 'blue', 'indigo', // 💧 4 Tons de Azul
+                                        'violet', 'purple', 'fuchsia', 'pink' // Roxos/Rosas
+                                    ].map(color => (
+                                        <label key={color} className="relative cursor-pointer group">
+                                            <input type="radio" name="color" value={color} className="peer sr-only" defaultChecked={editingPlan ? editingPlan.color === color : color === 'slate'} />
+                                            {/* Bolinha da cor */}
+                                            <div className={`w-6 h-6 rounded-full border border-gray-200 peer-checked:scale-110 peer-checked:ring-2 peer-checked:ring-offset-1 peer-checked:ring-black transition-all bg-${color}-400 hover:opacity-80`} title={color}></div>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <select name="method" defaultValue={editingPlan?.paymentMethod} className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:border-black outline-none"><option value="Pix">Pix</option><option value="Cartão">Cartão</option></select>
+                            
                             <div className="grid grid-cols-2 gap-2">
-                                <input name="gross" type="number" step="0.01" placeholder="Bruto" className="p-2 text-sm border rounded" required />
-                                <input name="net" type="number" step="0.01" placeholder="Líquido" className="p-2 text-sm border rounded" required />
+                                <input name="gross" type="number" step="0.01" defaultValue={editingPlan?.grossValue} placeholder="Bruto (R$)" className="p-2 text-sm border border-gray-200 rounded focus:border-black outline-none" required />
+                                <input name="net" type="number" step="0.01" defaultValue={editingPlan?.netValue} placeholder="Líquido (R$)" className="p-2 text-sm border border-green-200 rounded focus:border-green-600 outline-none font-medium text-green-700" required />
                             </div>
-                            <button className="w-full bg-black text-white py-2 rounded text-sm font-bold shadow-md hover:bg-gray-800">Adicionar Plano</button>
+                            
+                            <button className={`w-full py-2.5 rounded text-sm font-bold shadow-md transition-all ${editingPlan ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-black hover:bg-gray-800 text-white'}`}>
+                                {editingPlan ? 'Salvar Alterações' : 'Adicionar Novo Plano'}
+                            </button>
                         </form>
                     </div>
                 </div>
@@ -584,10 +689,74 @@ export default function FinancialModule({ students }) {
             {/* MODAL HISTÓRICO LTV */}
             {historyModalOpen && selectedStudentHistory && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-in fade-in">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-10">
-                        <div className="p-6 bg-black text-white flex justify-between items-start"><div><h2 className="text-2xl font-bold">{selectedStudentHistory.student?.name}</h2><p className="text-gray-400 text-sm mt-1">LTV (Lifetime Value) - Histórico de Pagamentos</p></div><button onClick={() => setHistoryModalOpen(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"><X size={20} className="text-white"/></button></div>
-                        <div className="bg-gray-50 p-4 border-b border-gray-200 flex justify-around text-center"><div><p className="text-[10px] font-bold uppercase text-gray-400">Total Pago (Líquido)</p><p className="text-xl font-black text-green-700">{formatCurrency(selectedStudentHistory.history.reduce((acc, curr) => acc + (curr.payDate ? parseFloat(curr.netValue||0) : 0), 0))}</p></div></div>
-                        <div className="flex-1 overflow-y-auto p-0"><table className="w-full text-left"><thead className="sticky top-0 bg-gray-100 border-b border-gray-200 shadow-sm z-10"><tr><th className="p-4 text-[10px] font-black uppercase text-gray-500">Data Pagamento</th><th className="p-4 text-[10px] font-black uppercase text-gray-500">Referência</th><th className="p-4 text-[10px] font-black uppercase text-gray-500">Líquido</th><th className="p-4 text-[10px] font-black uppercase text-gray-500 text-right">Venc. Original</th></tr></thead><tbody className="divide-y divide-gray-100">{selectedStudentHistory.history.map(h => { return (<tr key={h.id} className="hover:bg-gray-50"><td className="p-4">{h.payDate ? <span className="font-bold text-green-700">{formatDateBr(h.payDate)}</span> : <span className="text-xs text-gray-400 italic">Pendente</span>}</td><td className="p-4"><div className="font-bold text-gray-800">{h.planType}</div><div className="text-xs text-gray-400">{h.paymentMethod}</div></td><td className="p-4 font-mono font-bold text-gray-700">{formatCurrency(h.netValue)}</td><td className="p-4 text-right text-xs text-gray-400">{formatDateBr(h.dueDate)}</td></tr>) })}</tbody></table></div>
+                    {/* Alterado para max-w-5xl para caber as novas colunas */}
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-10">
+                        
+                        {/* CABEÇALHO DO MODAL */}
+                        <div className="p-6 bg-black text-white flex justify-between items-start">
+                            <div>
+                                <h2 className="text-2xl font-bold">{selectedStudentHistory.student?.name}</h2>
+                                <p className="text-gray-400 text-sm mt-1">LTV (Lifetime Value) - Histórico de Pagamentos</p>
+                            </div>
+                            <button onClick={() => setHistoryModalOpen(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors">
+                                <X size={20} className="text-white"/>
+                            </button>
+                        </div>
+
+                        {/* RESUMO FINANCEIRO */}
+                        <div className="bg-gray-50 p-4 border-b border-gray-200 flex justify-around text-center">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase text-gray-400">Total Pago (Líquido)</p>
+                                <p className="text-xl font-black text-green-700">
+                                    {formatCurrency(selectedStudentHistory.history.reduce((acc, curr) => acc + (curr.payDate ? parseFloat(curr.netValue||0) : 0), 0))}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* TABELA COM NOVAS COLUNAS */}
+                        <div className="flex-1 overflow-y-auto p-0">
+                            <table className="w-full text-left">
+                                <thead className="sticky top-0 bg-gray-100 border-b border-gray-200 shadow-sm z-10">
+                                    <tr>
+                                        <th className="p-4 text-[10px] font-black uppercase text-gray-500">Data Pagamento</th>
+                                        <th className="p-4 text-[10px] font-black uppercase text-gray-500">Referência</th>
+                                        <th className="p-4 text-[10px] font-black uppercase text-gray-500">Líquido</th>
+                                        
+                                        {/* NOVAS COLUNAS ADICIONADAS AQUI */}
+                                        <th className="p-4 text-[10px] font-black uppercase text-gray-500">Início Vigência</th>
+                                        <th className="p-4 text-[10px] font-black uppercase text-gray-500">Fim Vigência</th>
+                                        
+                                        <th className="p-4 text-[10px] font-black uppercase text-gray-500 text-right">Status Calc.</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {selectedStudentHistory.history.map(h => { 
+                                        return (
+                                            <tr key={h.id} className="hover:bg-gray-50">
+                                                <td className="p-4">
+                                                    {h.payDate ? <span className="font-bold text-green-700">{formatDateBr(h.payDate)}</span> : <span className="text-xs text-gray-400 italic">Pendente</span>}
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="font-bold text-gray-800">{h.planType}</div>
+                                                    <div className="text-xs text-gray-400">{h.paymentMethod}</div>
+                                                </td>
+                                                <td className="p-4 font-mono font-bold text-gray-700">{formatCurrency(h.netValue)}</td>
+                                                
+                                                {/* DADOS DAS NOVAS COLUNAS */}
+                                                <td className="p-4 text-xs text-gray-600 font-medium">{formatDateBr(h.startDate)}</td>
+                                                <td className="p-4 text-xs text-gray-600 font-medium">{formatDateBr(h.dueDate)}</td>
+                                                
+                                                <td className="p-4 text-right">
+                                                    <span className="text-[10px] border px-1 py-0.5 rounded bg-gray-50 text-gray-500">
+                                                        {getComputedStatus(h, todayISO).label}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ) 
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
