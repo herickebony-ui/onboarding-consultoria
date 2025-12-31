@@ -197,6 +197,51 @@ const Editor = ({ planId, onBack, onTest }) => {
                     {step.videoUrl && <div className="mt-2 aspect-video bg-black rounded overflow-hidden"><VideoPlayerGlobal url={step.videoUrl}/></div>}</div>
                 )}
 
+                {/* --- BLOCOS RESTAURADOS (APP, PDF, LOCAL, LINKS) --- */}
+                
+                {step.type === 'app' && (
+                  <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mt-4">
+                    <label className="text-xs font-bold uppercase mb-2 block">Links dos Aplicativos</label>
+                    <div className="grid gap-2">
+                      <div><label className="text-xs font-medium">Link Android (Google Play)</label><input value={step.androidLink||''} onChange={e=>updateStep(index,'androidLink',e.target.value)} className="w-full p-2 border rounded text-sm"/></div>
+                      <div><label className="text-xs font-medium">Link iOS (App Store)</label><input value={step.iosLink||''} onChange={e=>updateStep(index,'iosLink',e.target.value)} className="w-full p-2 border rounded text-sm"/></div>
+                      <div><label className="text-xs font-medium">Link Navegador/Web</label><input value={step.webLink||''} onChange={e=>updateStep(index,'webLink',e.target.value)} className="w-full p-2 border rounded text-sm"/></div>
+                    </div>
+                  </div>
+                )}
+
+                {step.type === 'pdf' && (
+                  <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mt-4 grid md:grid-cols-2 gap-4">
+                    <div><label className="text-xs font-bold uppercase mb-1">Link Externo (Opcional)</label><input value={step.link||''} onChange={e=>updateStep(index,'link',e.target.value)} className="w-full p-2 border rounded text-sm"/></div>
+                    <div>
+                        <label className="text-xs font-bold uppercase mb-1">Upload PDF</label>
+                        {!step.pdfData ? (
+                            <label className="w-full p-2 border border-dashed rounded bg-white text-sm text-gray-500 cursor-pointer flex items-center justify-center gap-2 hover:bg-gray-50"><Upload className="w-4 h-4"/> Escolher Arquivo<input type="file" accept="application/pdf" className="hidden" onChange={e=>handlePdfUpload(index,e)}/></label>
+                        ) : (
+                            <div className="flex items-center justify-between p-2 bg-green-50 border border-green-200 rounded"><span className="text-xs text-green-800 truncate max-w-[150px]">{step.pdfName||"Arquivo.pdf"}</span><button onClick={()=>updateStep(index,'pdfData',null)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4"/></button></div>
+                        )}
+                    </div>
+                    <div className="md:col-span-2"><label className="text-xs font-bold uppercase mb-1">Texto do Botão</label><input value={step.buttonText||''} onChange={e=>updateStep(index,'buttonText',e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="Ex: Baixar PDF"/></div>
+                  </div>
+                )}
+
+                {step.type === 'location' && (
+                  <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mt-4 grid md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                        <label className="text-xs font-bold uppercase mb-1">Endereço ou Link Google Maps</label>
+                        <input value={step.location||''} onChange={e=>updateStep(index,'location',e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="Av. Paulista, 1000..."/>
+                    </div>
+                    <div><label className="text-xs font-bold uppercase mb-1">Texto do Botão</label><input value={step.buttonText||''} onChange={e=>updateStep(index,'buttonText',e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="Abrir no Maps"/></div>
+                  </div>
+                )}
+
+                {(step.type === 'text' || step.type === 'welcome') && (
+                  <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mt-4 grid md:grid-cols-2 gap-4">
+                    <div><label className="text-xs font-bold uppercase mb-1">Link Botão Extra</label><input value={step.linkExtra||''} onChange={e=>updateStep(index,'linkExtra',e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="https://..."/></div>
+                    <div><label className="text-xs font-bold uppercase mb-1">Texto do Botão</label><input value={step.buttonText||''} onChange={e=>updateStep(index,'buttonText',e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="Acessar"/></div>
+                  </div>
+                )}
+
                 {/* GALERIA */}
                 <div className="bg-white p-4 rounded-lg border border-gray-200">
                     <label className="text-xs font-bold uppercase mb-2 block">Galeria</label>

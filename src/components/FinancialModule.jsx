@@ -334,67 +334,61 @@ export default function FinancialModule({ students }) {
     const [todayISO, setTodayISO] = useState(getTodayISO());
 
     useEffect(() => {
-    const timer = setInterval(() => setTodayISO(getTodayISO()), 60 * 1000); // atualiza a cada 1 min
-    return () => clearInterval(timer);
-    }, []);
-
-    const [records, setRecords] = useState([]); 
-    const [loading, setLoading] = useState(true);
-
-    // Estados de Planos
-    const [plans, setPlans] = useState([]);
-    const [planModalOpen, setPlanModalOpen] = useState(false);
-    const [editingPlan, setEditingPlan] = useState(null);
-
-    // Range de Datas (Padrão)
-    const [dateRange, setDateRange] = useState(() => {
-        const now = new Date();
-        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        const z = n => ('0' + n).slice(-2);
-        return { 
-            start: `${firstDay.getFullYear()}-${z(firstDay.getMonth()+1)}-${z(firstDay.getDate())}`, 
-            end: `${lastDay.getFullYear()}-${z(lastDay.getMonth()+1)}-${z(lastDay.getDate())}` 
-        };
-    });
-    
-    const [filters, setFilters] = useState({ search: '', status: 'all' });
-    const [dueSortDir, setDueSortDir] = useState('asc'); // asc = 1→31 | desc = 31→1
-    
-    // Carga de Dados
-    useEffect(() => {
-        // 1) Pagamentos
-        const qRec = query(collection(db, 'payments'), limit(10000));
-        const unsubRec = onSnapshot(qRec, (s) => {
-            setRecords(
-                s.docs.map(d => {
-                  const data = d.data();
-                  return {
-                    id: d.id,
-                    ...data,
-                    payDate: normalizeDate(data.payDate),
-                    startDate: normalizeDate(data.startDate),
-                    dueDate: normalizeDate(data.dueDate),
-                  };
-                })
-              );              
-          setLoading(false);
-        });
-      
-        // 2) Planos
-        const qPlans = query(collection(db, 'plans'));
-        const unsubPlans = onSnapshot(qPlans, (s) => {
-          const sortedPlans = s.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-          setPlans(sortedPlans);
-        });
-      
-        return () => { 
-          unsubRec(); 
-          unsubPlans(); 
-        };
-      }, []);      
+      const initSystem = async () => {
+        const params = new URLSearchParams(window.location.search);
+        const urlId = params.get('id');       
+        const urlToken = params.get('token'); 
+        const urlRegister = params.get('register');
+  
+        // Rota A: Pré-Cadastro Público
+        if (urlRegister) {
+          setViewState('public_register');
+          return;
+        }
+  
+        // Rota B: Aluno (Link com Token)
+        if (urlToken) {
+          setViewState('loading');
+          try {
+            const studentRef = doc(db, "students", urlToken);
+            const studentSnap = await getDoc(studentRef);
+  
+            if (studentSnap.exists()) {
+              const sData = { id: studentSnap.id, ...studentSnap.data() };
+              setActiveStudent(sData);
+  
+              // Carrega o Plano do Aluno
+              if (sData.planId) {
+                  const planRef = doc(db, "onboarding", sData.planId);
+                  const planSnap = await getDoc(planRef);
+                  if (planSnap.exists()) {
+                      setActivePlanData(planSnap.data());
+                  }
+              }
+              setViewState('student_view');
+            } else {
+              alert("Convite não encontrado.");
+              setViewState('login');
+            }
+          } catch (e) {
+            console.error("Erro ao carregar aluno:", e);
+            alert("Erro de conexão.");
+          }
+          return;
+        }
+  
+        // Rota C: Admin Logado
+        const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
+        if (hasSession) {
+          await loadDashboardData();
+          setViewState('dashboard');
+        } else {
+          setViewState('login');
+        }
+      };
+  
+      initSystem();
+    }, []);   
 
       useEffect(() => {
         const qAudit = query(
