@@ -11,6 +11,41 @@ import {
 } from 'lucide-react';
 import { db } from '../services/firebase';
 
+const ALLOWED_COLORS = [
+    'slate','red','rose','orange','amber','yellow',
+    'lime','green','emerald','teal','cyan','sky',
+    'blue','indigo','violet','purple','fuchsia','pink'
+  ];
+  
+  const COLOR_DOT = {
+    slate:'bg-slate-400', red:'bg-red-400', rose:'bg-rose-400',
+    orange:'bg-orange-400', amber:'bg-amber-400', yellow:'bg-yellow-400',
+    lime:'bg-lime-400', green:'bg-green-400', emerald:'bg-emerald-400',
+    teal:'bg-teal-400', cyan:'bg-cyan-400', sky:'bg-sky-400',
+    blue:'bg-blue-400', indigo:'bg-indigo-400', violet:'bg-violet-400',
+    purple:'bg-purple-400', fuchsia:'bg-fuchsia-400', pink:'bg-pink-400'
+  };
+  
+  const COLOR_BADGE = {
+    slate:'bg-slate-100 text-slate-800 border-slate-200',
+    red:'bg-red-100 text-red-800 border-red-200',
+    rose:'bg-rose-100 text-rose-800 border-rose-200',
+    orange:'bg-orange-100 text-orange-800 border-orange-200',
+    amber:'bg-amber-100 text-amber-800 border-amber-200',
+    yellow:'bg-yellow-100 text-yellow-800 border-yellow-200',
+    lime:'bg-lime-100 text-lime-800 border-lime-200',
+    green:'bg-green-100 text-green-800 border-green-200',
+    emerald:'bg-emerald-100 text-emerald-800 border-emerald-200',
+    teal:'bg-teal-100 text-teal-800 border-teal-200',
+    cyan:'bg-cyan-100 text-cyan-800 border-cyan-200',
+    sky:'bg-sky-100 text-sky-800 border-sky-200',
+    blue:'bg-blue-100 text-blue-800 border-blue-200',
+    indigo:'bg-indigo-100 text-indigo-800 border-indigo-200',
+    violet:'bg-violet-100 text-violet-800 border-violet-200',
+    purple:'bg-purple-100 text-purple-800 border-purple-200',
+    fuchsia:'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
+    pink:'bg-pink-100 text-pink-800 border-pink-200'
+  };  
 // --- HELPERS VISUAIS (ESTILO NOTION) ---
 const getMonthBadge = (dateStr) => {
     if (!dateStr) return { day: '--', name: '-', color: 'bg-gray-100 text-gray-400' };
@@ -74,6 +109,14 @@ const formatDateBr = (dateStr) => {
     return `${d}/${m}/${y}`;
 };
 
+const diffDaysISO = (fromISO, toISO) => {
+    if (!fromISO || !toISO) return null;
+    const a = parseLocalMidnight(fromISO);
+    const b = parseLocalMidnight(toISO);
+    if (!a || !b) return null;
+    return Math.floor((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
+  };
+  
 // Função inteligente para calcular data final
 const addMonths = (dateStr, months) => {
     if (!dateStr) return '';
@@ -88,7 +131,7 @@ const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currenc
 // --- LÓGICA DE STATUS ---
 const getComputedStatus = (record, todayISO) => {
     if (record.status === 'Pausado') {
-        return { label: 'PAUSADO', color: 'bg-black text-white border-gray-600', sortOrder: 0 };
+        return { label: 'Pausado', color: 'bg-black text-white border-gray-600', sortOrder: 0 };
     }
 
     const payDateStr = normalizeDate(record.payDate);
@@ -98,7 +141,7 @@ const getComputedStatus = (record, todayISO) => {
     
     // CASO 1: PAGOU MAS NÃO TEM DATA DE INÍCIO (Recém Lançado)
     if (payDateStr && !startDateStr) {
-        return { label: 'PAGO E NÃO INICIADO', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', sortOrder: 1 };
+        return { label: 'Pago e não iniciado', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', sortOrder: 1 };
     }
 
     // CASO 2: TEM VENCIMENTO DEFINIDO
@@ -107,12 +150,12 @@ const getComputedStatus = (record, todayISO) => {
         const diffTime = dToday.getTime() - dDue.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 
-        if (diffDays > 30) return { label: 'INATIVO', color: 'bg-red-600 text-white border-red-700', sortOrder: 5 };
-        if (diffDays > 0) return { label: 'VENCIDO', color: 'bg-[#850000] text-white border-red-900', sortOrder: 4 }; 
+        if (diffDays > 30) return { label: 'Inativo', color: 'bg-red-600 text-white border-red-700', sortOrder: 5 };
+        if (diffDays > 0) return { label: 'Vencido', color: 'bg-[#850000] text-white border-red-900', sortOrder: 4 }; 
         if (dToday.getMonth() === dDue.getMonth() && dToday.getFullYear() === dDue.getFullYear()) {
-            return { label: 'RENOVA ESSE MÊS', color: 'bg-orange-100 text-orange-800 border-orange-300', sortOrder: 3 };
+            return { label: 'Renova esse mês', color: 'bg-orange-100 text-orange-800 border-orange-300', sortOrder: 3 };
         }
-        return { label: 'ATIVO', color: 'bg-green-100 text-green-800 border-green-300', sortOrder: 6 };
+        return { label: 'Ativo', color: 'bg-green-100 text-green-800 border-green-300', sortOrder: 6 };
     }
 
     // CASO 3: SEM DATA E SEM PAGAMENTO
@@ -122,46 +165,132 @@ const getComputedStatus = (record, todayISO) => {
 // --- SERVIÇOS ---
 const FinancialService = {
     async createContractWithInstallments(baseData, installmentsData) {
-        const batch = writeBatch(db);
-        installmentsData.forEach(inst => {
-            const recordRef = doc(collection(db, 'payments'));
-            batch.set(recordRef, { ...inst, payDate: normalizeDate(inst.payDate), createdAt: serverTimestamp() });
-        });
-        await batch.commit();
+      const batch = writeBatch(db);
+      installmentsData.forEach(inst => {
+        const recordRef = doc(collection(db, 'payments'));
+        batch.set(recordRef, { ...inst, payDate: normalizeDate(inst.payDate), createdAt: serverTimestamp() });
+      });
+      await batch.commit();
     },
+  
     async updateRecord(recordId, data) {
-        const ref = doc(db, 'payments', recordId);
-        return updateDoc(ref, { ...data, payDate: normalizeDate(data.payDate) });
+      const ref = doc(db, 'payments', recordId);
+      return updateDoc(ref, { ...data, payDate: normalizeDate(data.payDate) });
     },
+  
     async deleteRecord(recordId) {
-        return deleteDoc(doc(db, 'payments', recordId));
+      return deleteDoc(doc(db, 'payments', recordId));
     },
+  
     async settlePayment(recordId, payDate) {
-        const ref = doc(db, 'payments', recordId);
-        return updateDoc(ref, { payDate: normalizeDate(payDate) });
+      const ref = doc(db, 'payments', recordId);
+      return updateDoc(ref, { payDate: normalizeDate(payDate) });
     },
+  
     async createPlan(data) {
-        return addDoc(collection(db, 'plans'), data);
+      return addDoc(collection(db, 'plans'), data);
     },
+  
     async updatePlan(planId, data) {
-        const ref = doc(db, 'plans', planId);
-        return updateDoc(ref, data);
+      const ref = doc(db, 'plans', planId);
+      return updateDoc(ref, data);
     },
+  
     // --- TRAVA DE SEGURANÇA: Só exclui se ninguém usar ---
     async deletePlan(planId, planName) {
-        // 1. Verifica se existe algum pagamento usando esse nome de plano
-        const q = query(collection(db, 'payments'), where('planType', '==', planName), limit(1));
-        const snapshot = await getDocs(q);
-
-        if (!snapshot.empty) {
-            // Se achou pelo menos 1, bloqueia e avisa
-            throw new Error(`BLOQUEADO: O plano "${planName}" não pode ser excluído pois existem registros financeiros vinculados a ele. Edite o nome ou o status, mas não exclua.`);
+      const q = query(collection(db, 'payments'), where('planType', '==', planName), limit(1));
+      const snapshot = await getDocs(q);
+  
+      if (!snapshot.empty) {
+        throw new Error(`BLOQUEADO: O plano "${planName}" não pode ser excluído pois existem registros financeiros vinculados a ele. Edite o nome ou o status, mas não exclua.`);
+      }
+  
+      return deleteDoc(doc(db, 'plans', planId));
+    },
+  
+    // ✅ NOVAS FUNÇÕES AUDITADAS (COLA AQUI)
+    async createPlanAudited(data, who = "admin") {
+      const batch = writeBatch(db);
+  
+      const planRef = doc(collection(db, 'plans'));
+      const auditRef = doc(collection(db, 'audit_logs'));
+  
+      batch.set(planRef, { ...data, createdAt: serverTimestamp() });
+  
+      batch.set(auditRef, {
+        action: "CRIOU_PLANO",
+        entity: "PLAN",
+        entityId: planRef.id,
+        planName: data.name || "",
+        netValue: Number(data.netValue) || 0,
+        note: `Criou plano (${data.durationMonths} meses • ${data.paymentMethod} • cor ${data.color})`,
+        who,
+        createdAt: serverTimestamp()
+      });
+  
+      await batch.commit();
+      return planRef;
+    },
+  
+    async updatePlanAudited(planId, beforePlan, data, who = "admin") {
+      const batch = writeBatch(db);
+  
+      const planRef = doc(db, 'plans', planId);
+      const auditRef = doc(collection(db, 'audit_logs'));
+  
+      const changes = {};
+      ['name','durationMonths','paymentMethod','grossValue','netValue','color'].forEach((k) => {
+        const before = beforePlan?.[k];
+        const after = data[k];
+        if (String(before ?? '') !== String(after ?? '')) {
+          changes[k] = { from: before ?? null, to: after ?? null };
         }
-
-        // 2. Se estiver limpo, manda bala
-        return deleteDoc(doc(db, 'plans', planId));
+      });
+  
+      batch.update(planRef, data);
+  
+      batch.set(auditRef, {
+        action: "EDITOU_PLANO",
+        entity: "PLAN",
+        entityId: planId,
+        planName: data.name || beforePlan?.name || "",
+        netValue: Number(data.netValue) || 0,
+        note: "Edição de plano (Gerenciar Planos)",
+        changes,
+        who,
+        createdAt: serverTimestamp()
+      });
+  
+      await batch.commit();
+    },
+  
+    async deletePlanAudited(planId, planName, who = "admin") {
+      const q = query(collection(db, 'payments'), where('planType', '==', planName), limit(1));
+      const snapshot = await getDocs(q);
+  
+      if (!snapshot.empty) {
+        throw new Error(`BLOQUEADO: O plano "${planName}" não pode ser excluído pois existem registros financeiros vinculados a ele.`);
+      }
+  
+      const batch = writeBatch(db);
+      const planRef = doc(db, 'plans', planId);
+      const auditRef = doc(collection(db, 'audit_logs'));
+  
+      batch.delete(planRef);
+  
+      batch.set(auditRef, {
+        action: "EXCLUIU_PLANO",
+        entity: "PLAN",
+        entityId: planId,
+        planName: planName || "",
+        note: "Exclusão de plano (Gerenciar Planos)",
+        who,
+        createdAt: serverTimestamp()
+      });
+  
+      await batch.commit();
     }
-};
+  };  
 
 const DashboardCard = ({ title, value, subtext, icon: Icon, colorClass = "bg-white", textClass="text-slate-800" }) => (
     <div className={`${colorClass} p-6 rounded-xl shadow-sm border border-slate-200 flex items-start justify-between relative overflow-hidden`}>
@@ -176,9 +305,28 @@ const DashboardCard = ({ title, value, subtext, icon: Icon, colorClass = "bg-whi
     </div>
 );
 
+const logAudit = async (payload) => {
+    try {
+      await addDoc(collection(db, 'audit_logs'), {
+        ...payload,
+        createdAt: serverTimestamp(),
+        who: payload.who || "admin"
+      });
+    } catch (e) {
+      alert("ERRO ao salvar auditoria: " + (e?.message || e));
+      throw e; // importante: para tu saber que falhou
+    }
+  };  
+  
 // --- COMPONENTE PRINCIPAL ---
 export default function FinancialModule({ students }) {
-    const [todayISO] = useState(getTodayISO());
+    const [todayISO, setTodayISO] = useState(getTodayISO());
+
+    useEffect(() => {
+    const timer = setInterval(() => setTodayISO(getTodayISO()), 60 * 1000); // atualiza a cada 1 min
+    return () => clearInterval(timer);
+    }, []);
+
     const [records, setRecords] = useState([]); 
     const [loading, setLoading] = useState(true);
 
@@ -200,29 +348,71 @@ export default function FinancialModule({ students }) {
     });
     
     const [filters, setFilters] = useState({ search: '', status: 'all' });
-
+    const [dueSortDir, setDueSortDir] = useState('asc'); // asc = 1→31 | desc = 31→1
+    
     // Carga de Dados
     useEffect(() => {
-        const qRec = query(collection(db, 'payments'), limit(3000));
+        // 1) Pagamentos
+        const qRec = query(collection(db, 'payments'), limit(10000));
         const unsubRec = onSnapshot(qRec, (s) => {
-            setRecords(s.docs.map(d => ({ id: d.id, ...d.data(), payDate: normalizeDate(d.data().payDate) })));
-            setLoading(false);
+          setRecords(s.docs.map(d => ({ id: d.id, ...d.data(), payDate: normalizeDate(d.data().payDate) })));
+          setLoading(false);
         });
-
+      
+        // 2) Planos
         const qPlans = query(collection(db, 'plans'));
         const unsubPlans = onSnapshot(qPlans, (s) => {
-            // Ordenação manual no Front-end (mais seguro para evitar erros de índice no Firebase)
-            const sortedPlans = s.docs
-                .map(d => ({ id: d.id, ...d.data() }))
-                .sort((a, b) => a.name.localeCompare(b.name));
-            setPlans(sortedPlans);
+          const sortedPlans = s.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          setPlans(sortedPlans);
         });
+      
+        // 3) Auditoria (logs)
+        const qAudit = query(
+          collection(db, 'audit_logs'),
+          orderBy('createdAt', 'desc'),
+          limit(300)
+        );
+      
+        const unsubAudit = onSnapshot(qAudit, (s) => {
+          setAuditLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+      
+        return () => { 
+          unsubRec(); 
+          unsubPlans(); 
+          unsubAudit(); 
+        };
+      }, []);      
 
-        return () => { unsubRec(); unsubPlans(); };
-    }, []);
-
+      useEffect(() => {
+        const qAudit = query(
+          collection(db, 'audit_logs'),
+          orderBy('createdAt', 'desc'),
+          limit(300)
+        );
+      
+        const unsubAudit = onSnapshot(
+          qAudit,
+          (s) => {
+            setAuditLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
+          },
+          (err) => {
+            alert("ERRO ao carregar auditoria: " + (err?.message || err));
+          }
+        );
+      
+        return () => unsubAudit();
+      }, []);        
     const studentsMap = useMemo(() => students.reduce((acc, s) => ({...acc, [s.id]: s}), {}), [students]);
 
+    const plansById = useMemo(() => {
+        const m = {};
+        plans.forEach(p => { m[p.id] = p; });
+        return m;
+      }, [plans]);
+      
     // --- KPI ENGINE (INTELIGÊNCIA TEMPORAL CORRIGIDA) ---
     const stats = useMemo(() => {
         let revenueReal = 0;      
@@ -259,8 +449,16 @@ export default function FinancialModule({ students }) {
                               dueISO >= dateRange.start;
 
             // B. Estava em Onboarding? (Pagou DENTRO ou ANTES do período, e ainda não tinha data de início ou começou depois)
-            const isOnboarding = payISO && !startISO && 
-                                 payISO <= dateRange.end;
+            const notStartedYet = !startISO || startISO > dateRange.end; // não começou dentro do período
+            const daysFromPayToEnd = payISO ? diffDaysISO(payISO, dateRange.end) : null;
+
+            const isOnboarding =
+            payISO &&
+            notStartedYet &&
+            daysFromPayToEnd !== null &&
+            daysFromPayToEnd >= 0 &&
+            daysFromPayToEnd <= 30;
+
 
             if ((isVigente || isOnboarding) && r.studentId) {
                 activeStudentIds.add(r.studentId);
@@ -298,18 +496,56 @@ export default function FinancialModule({ students }) {
                                 (startISO <= dateRange.end) && 
                                 (dueISO >= dateRange.start);
         
+        // C. Onboarding recente (até 30 dias) também deve aparecer na lista
+        const notStartedYet = !startISO || startISO > dateRange.end;
+        const daysFromPayToEnd = payISO ? diffDaysISO(payISO, dateRange.end) : null;
+
+        const isOnboardingRecent =
+        payISO &&
+        notStartedYet &&
+        daysFromPayToEnd !== null &&
+        daysFromPayToEnd >= 0 &&
+        daysFromPayToEnd <= 30;
+                                
         // REGRA FINAL: Mostra se teve evento financeiro OU se está vigente no período
-        if (!isFinancialEvent && !isActiveInRange) return false;
+        if (!isFinancialEvent && !isActiveInRange && !isOnboardingRecent) return false;
 
         // 3. Filtro de Status (Dropdown)
         const computed = getComputedStatus(r, todayISO);
         if (filters.status !== 'all' && filters.status !== computed.label) return false;
 
         return true;
-    }).sort((a, b) => normalizeDate(a.dueDate) > normalizeDate(b.dueDate) ? 1 : -1), 
-    [records, filters, studentsMap, dateRange, todayISO]);
+    }).sort((a, b) => {
+        const dir = dueSortDir === 'asc' ? 1 : -1;
+      
+        const aDue = normalizeDate(a.dueDate);
+        const bDue = normalizeDate(b.dueDate);
+      
+        // Quem tem vencimento vem primeiro
+        if (aDue && !bDue) return -1;
+        if (!aDue && bDue) return 1;
+        if (!aDue && !bDue) return 0;
+      
+        // Prioriza vencimentos dentro do mês filtrado
+        const aInMonth = isBetweenInclusive(aDue, dateRange.start, dateRange.end);
+        const bInMonth = isBetweenInclusive(bDue, dateRange.start, dateRange.end);
+      
+        if (aInMonth && !bInMonth) return -1;
+        if (!aInMonth && bInMonth) return 1;
+      
+        // Ordena pelo DIA (1..31 ou 31..1)
+        const aDay = Number(aDue.slice(8, 10));
+        const bDay = Number(bDue.slice(8, 10));
+        if (aDay !== bDay) return dir * (aDay - bDay);
+      
+        // Desempate
+        return dir * aDue.localeCompare(bDue);
+      }),
+      [records, filters, studentsMap, dateRange, todayISO, dueSortDir]);      
 
     // MODAIS
+    const [auditModalOpen, setAuditModalOpen] = useState(false);
+    const [auditLogs, setAuditLogs] = useState([]);
     const [modalOpen, setModalOpen] = useState(false);
     const [historyModalOpen, setHistoryModalOpen] = useState(false);
     
@@ -323,12 +559,13 @@ export default function FinancialModule({ students }) {
         if (plan) {
             setFormData(prev => ({
                 ...prev,
+                planId: plan.id,
                 planType: plan.name,
                 paymentMethod: plan.paymentMethod,
                 grossValue: plan.grossValue,
                 netValue: plan.netValue,
                 durationMonths: plan.durationMonths, // Salva a duração para usar depois
-                status: 'PAGO E NÃO INICIADO', // Regra de Ouro
+                status: 'Pago e não iniciado', // Regra de Ouro
                 payDate: todayISO,
                 startDate: '', // Limpo de propósito
                 dueDate: ''    // Limpo de propósito
@@ -349,7 +586,7 @@ export default function FinancialModule({ students }) {
 
         // 2. Se preencheu a data de início, já muda o status para ATIVO automaticamente
         if (newStart) {
-            newStatus = 'ATIVO';
+            newStatus = 'Ativo';
         }
 
         setFormData(prev => ({
@@ -379,37 +616,125 @@ export default function FinancialModule({ students }) {
 
     const handleSave = async (e) => {
         e.preventDefault();
+      
         const sId = formData.studentId;
         const sName = studentsMap[sId]?.name || "Aluno Desconhecido";
+      
+        // validações de datas...
+        const start = (formData.startDate || '').trim();
+        const due = (formData.dueDate || '').trim();
+      
+        if ((start && !due) || (!start && due)) {
+          alert("Você preencheu apenas UMA das datas. Preencha AS DUAS ou deixe AS DUAS vazias.");
+          return;
+        }
+        if (start && due && due < start) {
+          alert("Erro: a Data Fim/Vencimento não pode ser ANTES da Data Início.");
+          return;
+        }
+      
         const baseData = {
-            studentId: sId, studentName: sName,
-            planType: formData.planType, paymentMethod: formData.paymentMethod,
-            grossValue: parseFloat(formData.grossValue), netValue: parseFloat(formData.netValue),
-            durationMonths: formData.durationMonths || null, // <--- A MEMÓRIA DA DURAÇÃO
-            status: formData.status, startDate: formData.startDate, endDate: formData.dueDate,
-            dueDate: formData.dueDate, payDate: formData.payDate || null, notes: formData.notes || ''
+          planId: formData.planId || null,
+          studentId: sId,
+          studentName: sName,
+          planType: formData.planType,
+          paymentMethod: formData.paymentMethod,
+          grossValue: parseFloat(formData.grossValue),
+          netValue: parseFloat(formData.netValue),
+          durationMonths: formData.durationMonths || null,
+          status: formData.status,
+          startDate: formData.startDate,
+          dueDate: formData.dueDate,
+          payDate: formData.payDate || null,
+          notes: formData.notes || ''
         };
+      
         try {
-            if (currentRecord) await FinancialService.updateRecord(currentRecord.id, baseData);
-            else {
-                const qtd = parseInt(formData.installments);
-                if (qtd > 1) {
-                    // Se parcelar, aqui precisaria de uma lógica mais complexa para as datas.
-                    // Por enquanto, duplica os meses.
-                    const inst = [];
-                    for(let i=0; i<qtd; i++) inst.push({ ...baseData, startDate: addMonths(baseData.startDate, i), dueDate: addMonths(baseData.dueDate, i), notes: `${baseData.notes} (${i+1}/${qtd})` });
-                    await FinancialService.createContractWithInstallments(baseData, inst);
-                } else await FinancialService.createContractWithInstallments(baseData, [baseData]);
-            }
-            setModalOpen(false);
-        } catch (err) { alert(err.message); }
-    };
-
+          if (currentRecord) {
+            await FinancialService.updateRecord(currentRecord.id, baseData);
+      
+            await logAudit({
+              action: "EDITOU_LANCAMENTO",
+              entity: "PAYMENT",
+              entityId: currentRecord.id,
+              studentId: sId,
+              studentName: sName,
+              planName: baseData.planType || "",
+              netValue: baseData.netValue || 0,
+              payDate: baseData.payDate || "",
+              startDate: baseData.startDate || "",
+              dueDate: baseData.dueDate || "",
+              note: "Alteração manual"
+            });
+          } else {
+            await FinancialService.createContractWithInstallments(baseData, [baseData]);
+      
+            await logAudit({
+              action: "CRIOU_LANCAMENTO",
+              entity: "PAYMENT",
+              entityId: null,
+              studentId: sId,
+              studentName: sName,
+              planName: baseData.planType || "",
+              netValue: baseData.netValue || 0,
+              payDate: baseData.payDate || "",
+              startDate: baseData.startDate || "",
+              dueDate: baseData.dueDate || "",
+              note: "Novo lançamento"
+            });
+          }
+      
+          setModalOpen(false);
+        } catch (err) {
+          alert(err.message);
+        }
+      };      
+      
     const handleSettle = async (record) => {
         if (!window.confirm("Confirmar baixa no pagamento?")) return;
         await FinancialService.settlePayment(record.id, todayISO);
+        await logAudit({
+            action: "DEU_BAIXA",
+            entity: "PAYMENT",
+            entityId: record.id,
+            studentId: record.studentId || "",
+            studentName: studentsMap[record.studentId]?.name || record.studentName || "",
+            planName: record.planType || "",
+            netValue: parseFloat(record.netValue) || 0,
+            note: `Baixou pagamento para ${todayISO}`
+          });          
     };
 
+    const handleDeleteRecord = async () => {
+        if (!currentRecord) return;
+      
+        if (!window.confirm("Apagar registro?")) return;
+      
+        try {
+          // 1) Apaga
+          await FinancialService.deleteRecord(currentRecord.id);
+      
+          // 2) Loga auditoria (depois que deu certo)
+          await logAudit({
+            action: "EXCLUIU_LANCAMENTO",
+            entity: "PAYMENT",
+            entityId: currentRecord.id,
+            studentId: currentRecord.studentId || "",
+            studentName: studentsMap[currentRecord.studentId]?.name || currentRecord.studentName || "",
+            planName: currentRecord.planType || "",
+            netValue: Number(currentRecord.netValue) || 0,
+            startDate: normalizeDate(currentRecord.startDate) || "",
+            dueDate: normalizeDate(currentRecord.dueDate) || "",
+            payDate: normalizeDate(currentRecord.payDate) || "",
+            note: "Exclusão manual via modal (lápis > Excluir)"
+          });
+      
+          setModalOpen(false);
+        } catch (err) {
+          alert("Erro ao excluir: " + (err?.message || err));
+        }
+      };
+      
     if (loading) return <div className="p-8 text-center text-gray-500">Carregando financeiro...</div>;
 
     return (
@@ -437,16 +762,31 @@ export default function FinancialModule({ students }) {
                     </div>
                     <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="px-4 py-2 rounded-lg border border-gray-200 outline-none bg-white text-sm font-bold">
                         <option value="all">Todos Status</option>
-                        <option value="ATIVO">🟢 Ativo</option>
-                        <option value="RENOVA ESSE MÊS">🟠 Renova Mês</option>
-                        <option value="PAGO E NÃO INICIADO">🟡 Pago e Não Iniciado</option>
-                        <option value="PAUSADO">⚫ Pausado</option>
-                        <option value="VENCIDO">🟤 Vencido</option>
-                        <option value="INATIVO">🔴 Inativo</option>
+                        <option value="Ativo">🟢 Ativo</option>
+                        <option value="Renova esse mês">🟠 Renova Mês</option>
+                        <option value="Pago e não iniciado">🟡 Pago e não iniciado</option>
+                        <option value="Pausado">⚫ Pausado</option>
+                        <option value="Vencido">🟤 Vencido</option>
+                        <option value="Inativo">🔴 Inativo</option>
                     </select>
+                    <button
+                        type="button"
+                        onClick={() => setDueSortDir(dueSortDir === 'asc' ? 'desc' : 'asc')}
+                        className="px-4 py-2 rounded-lg border border-gray-200 outline-none bg-white text-sm font-bold hover:bg-gray-50"
+                        title="Ordenar por dia do vencimento"
+                        >
+                        Vencimento {dueSortDir === 'asc' ? '1→31' : '31→1'}
+                        </button>
                 </div>
                 <div className="flex gap-2">
                     <button onClick={() => setPlanModalOpen(true)} className="bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-50 text-sm transition-colors"><TrendingUp size={16}/> Planos</button>
+                    <button
+                        type="button"
+                        onClick={() => setAuditModalOpen(true)}
+                        className="bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-50 text-sm transition-colors"
+                        >
+                        <History size={16}/> Auditoria
+                        </button>
                     <button onClick={() => openModal()} className="bg-black text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg hover:bg-gray-800 transition-transform active:scale-95 whitespace-nowrap"><Plus size={18} /> Lançar</button>
                 </div>
             </div>
@@ -456,10 +796,13 @@ export default function FinancialModule({ students }) {
                 <table className="w-full text-left border-collapse">
                     <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-200"><th className="p-4">Aluno</th><th className="p-4">Status</th><th className="p-4">Vencimento</th><th className="p-4">Plano / Forma</th><th className="p-4">Valor Líquido</th><th className="p-4 text-right">Ações</th></tr></thead>
                     <tbody className="divide-y divide-gray-100">
-                        {filteredRecords.length === 0 ? (<tr><td colSpan="6" className="p-12 text-center text-gray-400 flex flex-col items-center gap-2"><Filter size={32} className="opacity-20"/><p>Nenhum registro no período.</p></td></tr>) : filteredRecords.map(r => {
+                        {filteredRecords.length === 0 ? (<tr><td colSpan="6" className="p-12 text-center text-gray-400 flex flex-col items-center gap-2"><Filter size={32} className="opacity-20"/><p>Nenhum registro no período.</p></td></tr>) : filteredRecords.map(r => {                                                      
                             const status = getComputedStatus(r, todayISO);
                             const sName = studentsMap[r.studentId]?.name || r.studentName;
                             const badge = getMonthBadge(r.dueDate); // Visual Notion
+
+                            const planObj = r.planId ? plansById[r.planId] : null;
+                            const planNameToShow = planObj?.name || r.planType;  
 
                             return (
                                 <tr key={r.id} className="hover:bg-gray-50 group transition-colors">
@@ -488,7 +831,7 @@ export default function FinancialModule({ students }) {
                                             ${plans.find(p => p.name === r.planType)?.color === 'green' ? 'bg-green-100 text-green-800 border-green-200' : 
                                             plans.find(p => p.name === r.planType)?.color === 'yellow' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
                                             'bg-gray-100 text-gray-700 border-gray-200'}`}>
-                                            {r.planType}
+                                            {planNameToShow}
                                         </div>
                                         <div className="text-[10px] text-gray-400 uppercase tracking-wide block mt-1">{r.paymentMethod}</div>
                                     </td>
@@ -526,7 +869,7 @@ export default function FinancialModule({ students }) {
                                 <div key={p.id} className={`flex justify-between items-center p-3 border rounded-lg bg-white shadow-sm hover:border-black transition-colors ${editingPlan?.id === p.id ? 'ring-2 ring-black border-transparent' : ''}`}>
                                     <div className="flex items-center gap-3">
                                         {/* Bolinha da Cor */}
-                                        <div className={`w-3 h-3 rounded-full bg-${p.color || 'gray'}-400`}></div>
+                                        <div className={`w-3 h-3 rounded-full ${COLOR_DOT[p.color] || COLOR_DOT.slate}`}></div>
                                         <div>
                                             <div className="font-bold text-sm text-gray-800">{p.name}</div>
                                             <div className="text-xs text-gray-500">{p.durationMonths} meses • Liq: {formatCurrency(p.netValue)}</div>
@@ -537,19 +880,22 @@ export default function FinancialModule({ students }) {
                                         <button onClick={() => setEditingPlan(p)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16}/></button>
                                         
                                         {/* Botão Excluir (COM A NOVA TRAVA DE SEGURANÇA) */}
-                                        <button onClick={async () => { 
-                                            if(window.confirm(`Tem certeza que deseja excluir o plano "${p.name}"?`)) {
+                                        <button
+                                            onClick={async () => {
+                                                if (!window.confirm(`Tem certeza que deseja excluir o plano "${p.name}"?`)) return;
+
                                                 try {
-                                                    // Passa ID e Nome para verificar antes de apagar
-                                                    await FinancialService.deletePlan(p.id, p.name); 
+                                                await FinancialService.deletePlanAudited(p.id, p.name);
+                                                // ✅ NÃO chama logAudit aqui (porque já foi gravado no deletePlanAudited)
                                                 } catch (error) {
-                                                    // Se der erro (estiver em uso), mostra o alerta
-                                                    alert(error.message); 
+                                                alert(error.message);
                                                 }
-                                            }
-                                        }} className="p-2 text-red-300 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir">
+                                            }}
+                                            className="p-2 text-red-300 hover:text-red-600 hover:bg-red-50 rounded"
+                                            title="Excluir"
+                                            >
                                             <X size={16}/>
-                                        </button>
+                                            </button>
                                     </div>
                                 </div>
                             ))}
@@ -560,23 +906,65 @@ export default function FinancialModule({ students }) {
                         <form onSubmit={async (e) => {
                             e.preventDefault();
                             const f = new FormData(e.target);
+
+                            const chosenColor = f.get('color');
+                            const safeColor = ALLOWED_COLORS.includes(chosenColor) ? chosenColor : 'slate';
+
                             const planData = {
-                                name: f.get('name'), 
+                                name: f.get('name'),
                                 durationMonths: parseInt(f.get('duration')),
                                 paymentMethod: f.get('method'),
-                                grossValue: parseFloat(f.get('gross')), 
+                                grossValue: parseFloat(f.get('gross')),
                                 netValue: parseFloat(f.get('net')),
-                                color: f.get('color') // Salva a cor escolhida
+                                color: safeColor
                             };
 
-                            if (editingPlan) {
-                                await FinancialService.updatePlan(editingPlan.id, planData);
-                                setEditingPlan(null); // Sai do modo edição
-                            } else {
-                                await FinancialService.createPlan(planData);
+                            try {
+                                if (editingPlan) {
+                                // ✅ atualiza plano
+                                await FinancialService.updatePlanAudited(editingPlan.id, editingPlan, planData);
+
+                                // ✅ audita edição (com “antes/depois” bem útil)
+                                const changes = {};
+                                ['name','durationMonths','paymentMethod','grossValue','netValue','color'].forEach((k) => {
+                                    const before = editingPlan?.[k];
+                                    const after = planData[k];
+                                    if (String(before ?? '') !== String(after ?? '')) {
+                                    changes[k] = { from: before ?? null, to: after ?? null };
+                                    }
+                                });
+
+                                await logAudit({
+                                    action: "EDITOU_PLANO",
+                                    entity: "PLAN",
+                                    entityId: editingPlan.id,
+                                    planName: planData.name || editingPlan.name || "",
+                                    netValue: Number(planData.netValue) || 0,
+                                    note: "Edição de plano (Gerenciar Planos)",
+                                    changes
+                                });
+
+                                setEditingPlan(null);
+                                } else {
+                                // ✅ cria plano
+                                const ref = await FinancialService.createPlanAudited(planData);
+
+                                // ✅ audita criação
+                                await logAudit({
+                                    action: "CRIOU_PLANO",
+                                    entity: "PLAN",
+                                    entityId: ref.id,
+                                    planName: planData.name || "",
+                                    netValue: Number(planData.netValue) || 0,
+                                    note: `Criou plano (${planData.durationMonths} meses • ${planData.paymentMethod} • cor ${planData.color})`
+                                });
+                                }
+
+                                e.target.reset();
+                            } catch (err) {
+                                alert(err?.message || err);
                             }
-                            e.target.reset();
-                        }} className="p-5 bg-white border-t border-gray-100 space-y-3 shadow-[0_-5px_15px_rgba(0,0,0,0.02)] relative z-10">
+                            }} className="p-5 bg-white border-t border-gray-100 space-y-3 shadow-[0_-5px_15px_rgba(0,0,0,0.02)] relative z-10">
                             
                             {/* Aviso de Edição */}
                             {editingPlan && <div className="text-xs font-bold text-blue-600 mb-2 flex justify-between"><span>✏️ Editando: {editingPlan.name}</span> <button type="button" onClick={() => setEditingPlan(null)} className="underline text-gray-400 font-normal">Cancelar</button></div>}
@@ -601,7 +989,7 @@ export default function FinancialModule({ students }) {
                                         <label key={color} className="relative cursor-pointer group">
                                             <input type="radio" name="color" value={color} className="peer sr-only" defaultChecked={editingPlan ? editingPlan.color === color : color === 'slate'} />
                                             {/* Bolinha da cor */}
-                                            <div className={`w-6 h-6 rounded-full border border-gray-200 peer-checked:scale-110 peer-checked:ring-2 peer-checked:ring-offset-1 peer-checked:ring-black transition-all bg-${color}-400 hover:opacity-80`} title={color}></div>
+                                            <div className={`w-6 h-6 rounded-full border border-gray-200 peer-checked:scale-110 peer-checked:ring-2 peer-checked:ring-offset-1 peer-checked:ring-black transition-all ${COLOR_DOT[color] || COLOR_DOT.slate} hover:opacity-80`} title={color}></div>
                                         </label>
                                     ))}
                                 </div>
@@ -659,10 +1047,10 @@ export default function FinancialModule({ students }) {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 block">Status Atual</label>
-                                    <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className={`w-full p-3 border rounded-lg bg-white text-sm font-bold ${formData.status === 'PAGO E NÃO INICIADO' ? 'bg-yellow-50 text-yellow-800 border-yellow-200' : 'border-gray-200'}`}>
-                                        <option value="PAGO E NÃO INICIADO">🟡 Pago e Não Iniciado</option>
-                                        <option value="ATIVO">🟢 Ativo (Vigendo)</option>
-                                        <option value="PAUSADO">⚫ Pausado</option>
+                                    <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className={`w-full p-3 border rounded-lg bg-white text-sm font-bold ${formData.status === 'Pago e não iniciado' ? 'bg-yellow-50 text-yellow-800 border-yellow-200' : 'border-gray-200'}`}>
+                                        <option value="Pago e não iniciado">🟡 Pago e não iniciado</option>
+                                        <option value="Ativo">🟢 Ativo (Vigendo)</option>
+                                        <option value="Pausado">⚫ Pausado</option>
                                     </select>
                                 </div>
                                 <div>
@@ -677,7 +1065,7 @@ export default function FinancialModule({ students }) {
                             <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 block">Observações</label><textarea value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="w-full p-3 border border-gray-200 rounded-lg text-sm" rows="2"></textarea></div>
                             
                             <div className="flex gap-3 pt-4 border-t border-gray-100">
-                                {currentRecord && <button type="button" onClick={() => { if(window.confirm("Apagar registro?")) FinancialService.deleteRecord(currentRecord.id).then(() => setModalOpen(false)) }} className="px-4 py-3 text-red-600 font-bold hover:bg-red-50 rounded-xl text-sm transition-colors">Excluir</button>}
+                                {currentRecord && <button type="button" onClick={handleDeleteRecord} className="px-4 py-3 text-red-600 font-bold hover:bg-red-50 rounded-xl text-sm transition-colors">Excluir</button>}
                                 <button type="button" onClick={() => setModalOpen(false)} className="ml-auto px-6 py-3 text-gray-500 font-bold hover:bg-gray-100 rounded-xl text-sm transition-colors">Cancelar</button>
                                 <button type="submit" className="px-8 py-3 bg-black text-white font-bold rounded-xl shadow-lg hover:bg-gray-800 transition-transform active:scale-95 text-sm">Salvar Registro</button>
                             </div>
@@ -730,14 +1118,16 @@ export default function FinancialModule({ students }) {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {selectedStudentHistory.history.map(h => { 
+                                    {selectedStudentHistory.history.map(h => {
+                                        const planObj = h.planId ? plansById[h.planId] : null;
+                                        const planNameToShow = planObj?.name || h.planType;                                         
                                         return (
                                             <tr key={h.id} className="hover:bg-gray-50">
                                                 <td className="p-4">
                                                     {h.payDate ? <span className="font-bold text-green-700">{formatDateBr(h.payDate)}</span> : <span className="text-xs text-gray-400 italic">Pendente</span>}
                                                 </td>
                                                 <td className="p-4">
-                                                    <div className="font-bold text-gray-800">{h.planType}</div>
+                                                    <div className="font-bold text-gray-800">{planNameToShow}</div>
                                                     <div className="text-xs text-gray-400">{h.paymentMethod}</div>
                                                 </td>
                                                 <td className="p-4 font-mono font-bold text-gray-700">{formatCurrency(h.netValue)}</td>
@@ -760,6 +1150,70 @@ export default function FinancialModule({ students }) {
                     </div>
                 </div>
             )}
+            {auditModalOpen && (
+  <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-in fade-in">
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
+      
+      {/* Cabeçalho */}
+      <div className="p-5 bg-black text-white flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold">Auditoria</h2>
+          <p className="text-gray-400 text-sm">Histórico de ações no sistema</p>
+        </div>
+        <button
+          onClick={() => setAuditModalOpen(false)}
+          className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"
+        >
+          <X size={20} className="text-white" />
+        </button>
+      </div>
+
+      {/* Lista */}
+      <div className="flex-1 overflow-y-auto">
+        <table className="w-full text-left">
+          <thead className="sticky top-0 bg-gray-100 border-b border-gray-200 z-10">
+            <tr>
+              <th className="p-4 text-[10px] font-black uppercase text-gray-500">Data/Hora</th>
+              <th className="p-4 text-[10px] font-black uppercase text-gray-500">Ação</th>
+              <th className="p-4 text-[10px] font-black uppercase text-gray-500">Aluno</th>
+              <th className="p-4 text-[10px] font-black uppercase text-gray-500">Plano</th>
+              <th className="p-4 text-[10px] font-black uppercase text-gray-500">Valor</th>
+              <th className="p-4 text-[10px] font-black uppercase text-gray-500">Detalhe</th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-gray-100">
+            {auditLogs.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="p-10 text-center text-gray-400">
+                  Nenhum log encontrado ainda.
+                </td>
+              </tr>
+            ) : auditLogs.map(l => {
+              const when = l.createdAt?.toDate ? l.createdAt.toDate().toLocaleString('pt-BR') : '-';
+              const aluno = l.studentName || '-';
+              const plano = l.planName || '-';
+              const valor = (typeof l.netValue === 'number')
+                ? formatCurrency(l.netValue)
+                : (l.netValue ? formatCurrency(Number(l.netValue)) : '-');
+
+              return (
+                <tr key={l.id} className="hover:bg-gray-50">
+                  <td className="p-4 text-xs text-gray-700 font-medium">{when}</td>
+                  <td className="p-4 text-xs font-bold text-gray-900">{l.action || '-'}</td>
+                  <td className="p-4 text-xs text-gray-700">{aluno}</td>
+                  <td className="p-4 text-xs text-gray-700">{plano}</td>
+                  <td className="p-4 text-xs font-mono font-bold text-gray-700">{valor}</td>
+                  <td className="p-4 text-xs text-gray-600">{l.note || '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+)}
         </div>
     );
 }
