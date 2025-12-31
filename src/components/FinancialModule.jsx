@@ -168,14 +168,25 @@ const FinancialService = {
       const batch = writeBatch(db);
       installmentsData.forEach(inst => {
         const recordRef = doc(collection(db, 'payments'));
-        batch.set(recordRef, { ...inst, payDate: normalizeDate(inst.payDate), createdAt: serverTimestamp() });
+        batch.set(recordRef, {
+            ...inst,
+            payDate: normalizeDate(inst.payDate),
+            startDate: normalizeDate(inst.startDate),
+            dueDate: normalizeDate(inst.dueDate),
+            createdAt: serverTimestamp()
+          });          
       });
       await batch.commit();
     },
   
     async updateRecord(recordId, data) {
       const ref = doc(db, 'payments', recordId);
-      return updateDoc(ref, { ...data, payDate: normalizeDate(data.payDate) });
+      return updateDoc(ref, {
+        ...data,
+        payDate: normalizeDate(data.payDate),
+        startDate: normalizeDate(data.startDate),
+        dueDate: normalizeDate(data.dueDate),
+      });      
     },
   
     async deleteRecord(recordId) {
@@ -355,7 +366,18 @@ export default function FinancialModule({ students }) {
         // 1) Pagamentos
         const qRec = query(collection(db, 'payments'), limit(10000));
         const unsubRec = onSnapshot(qRec, (s) => {
-          setRecords(s.docs.map(d => ({ id: d.id, ...d.data(), payDate: normalizeDate(d.data().payDate) })));
+            setRecords(
+                s.docs.map(d => {
+                  const data = d.data();
+                  return {
+                    id: d.id,
+                    ...data,
+                    payDate: normalizeDate(data.payDate),
+                    startDate: normalizeDate(data.startDate),
+                    dueDate: normalizeDate(data.dueDate),
+                  };
+                })
+              );              
           setLoading(false);
         });
       
@@ -368,21 +390,9 @@ export default function FinancialModule({ students }) {
           setPlans(sortedPlans);
         });
       
-        // 3) Auditoria (logs)
-        const qAudit = query(
-          collection(db, 'audit_logs'),
-          orderBy('createdAt', 'desc'),
-          limit(300)
-        );
-      
-        const unsubAudit = onSnapshot(qAudit, (s) => {
-          setAuditLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
-      
         return () => { 
           unsubRec(); 
           unsubPlans(); 
-          unsubAudit(); 
         };
       }, []);      
 
@@ -600,7 +610,12 @@ export default function FinancialModule({ students }) {
     const openModal = (record = null) => {
         setCurrentRecord(record);
         if (record) {
-            setFormData({ ...record, payDate: normalizeDate(record.payDate) || '' });
+            setFormData({
+                ...record,
+                payDate: normalizeDate(record.payDate) || '',
+                startDate: normalizeDate(record.startDate) || '',
+                dueDate: normalizeDate(record.dueDate) || '',
+              });
         } else {
             setFormData({ studentId: '', studentName: '', planType: 'Mensal', paymentMethod: 'Pix', startDate: '', dueDate: '', payDate: '', grossValue: '', netValue: '', status: 'Ativo', installments: 1, notes: '' });
         }
@@ -865,7 +880,7 @@ export default function FinancialModule({ students }) {
 
                         {/* Lista de Planos Existentes */}
                         <div className="p-4 max-h-[300px] overflow-y-auto space-y-2 bg-gray-50/50">
-                            {plans.sort((a,b) => a.name.localeCompare(b.name)).map(p => (
+                            {[...plans].sort((a,b) => (a.name||'').localeCompare(b.name||'')).map(p => (
                                 <div key={p.id} className={`flex justify-between items-center p-3 border rounded-lg bg-white shadow-sm hover:border-black transition-colors ${editingPlan?.id === p.id ? 'ring-2 ring-black border-transparent' : ''}`}>
                                     <div className="flex items-center gap-3">
                                         {/* Bolinha da Cor */}
@@ -934,30 +949,11 @@ export default function FinancialModule({ students }) {
                                     }
                                 });
 
-                                await logAudit({
-                                    action: "EDITOU_PLANO",
-                                    entity: "PLAN",
-                                    entityId: editingPlan.id,
-                                    planName: planData.name || editingPlan.name || "",
-                                    netValue: Number(planData.netValue) || 0,
-                                    note: "Edição de plano (Gerenciar Planos)",
-                                    changes
-                                });
-
                                 setEditingPlan(null);
                                 } else {
                                 // ✅ cria plano
                                 const ref = await FinancialService.createPlanAudited(planData);
 
-                                // ✅ audita criação
-                                await logAudit({
-                                    action: "CRIOU_PLANO",
-                                    entity: "PLAN",
-                                    entityId: ref.id,
-                                    planName: planData.name || "",
-                                    netValue: Number(planData.netValue) || 0,
-                                    note: `Criou plano (${planData.durationMonths} meses • ${planData.paymentMethod} • cor ${planData.color})`
-                                });
                                 }
 
                                 e.target.reset();
