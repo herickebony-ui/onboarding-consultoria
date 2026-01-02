@@ -1,3 +1,49 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* --- CSS DE IMPRESSÃO (FINAL DEFINITIVO) --- */
+@media print {
+    /* 1. Limpeza Geral */
+    header, footer, nav, button, .no-print, .sidebar { display: none !important; }
+    
+    /* 2. Destrava a altura para não cortar nada */
+    body, html, #root, .App, .min-h-screen {
+      background: white !important;
+      width: 100% !important;
+      height: auto !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: visible !important;
+    }
+  
+    /* 3. Remove sombras e bordas (Fim do efeito Origami) */
+    * { box-shadow: none !important; text-shadow: none !important; }
+    .bg-gray-50, .border-gray-200 { border: none !important; background: white !important; }
+  
+    /* 4. RODAPÉ FIXO (Repete em todas as páginas) */
+    .print-footer-fixed {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      border-top: 1px solid #ccc;
+      padding-top: 5px;
+      font-size: 10px;
+      color: #666;
+      background: white;
+      display: flex !important; /* Força aparecer na impressão */
+      justify-content: space-between;
+      z-index: 9999;
+    }
+  
+    /* 5. Espaço no fim da página para não cobrir o rodapé */
+    @page { margin-bottom: 1.5cm; }
+  
+    /* 6. FOLHA DE AUTENTICAÇÃO (Trilha de Auditoria) */
+    .auth-page-container {
+      page-break-before: always !important; /* Força nova página */
+      display: block !important;
+      margin-top: 2cm;
+      width: 100%;
+    }
+  }
