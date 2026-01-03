@@ -12,6 +12,7 @@ import { generateSlug, formatUrl, buildMapsUrl, applyStudentValuesToContract } f
 // 3. Componentes Modularizados
 import Dashboard from './components/Dashboard';
 import StudentRegistration from './components/StudentRegistration';
+import FinancialModule from './components/FinancialModule';
 import VideoPlayerGlobal from './components/VideoPlayerGlobal';
 import SignaturePad from './components/SignaturePad';
 import RichTextEditor from './components/RichTextEditor';
@@ -36,7 +37,9 @@ const OnboardingConsultoria = () => {
   const [viewState, setViewState] = useState('loading'); 
   const [isAdminAccess, setIsAdminAccess] = useState(false);
   const [activePlanId, setActivePlanId] = useState(null);
-  const [activeStudent, setActiveStudent] = useState(null); 
+  const [activeStudent, setActiveStudent] = useState(null);
+  const [activeContract, setActiveContract] = useState(null);
+const [activeContractId, setActiveContractId] = useState(null); 
   const [studentPhoneInput, setStudentPhoneInput] = useState(""); 
   const [availablePlans, setAvailablePlans] = useState([]);
   const [students, setStudents] = useState([]);
@@ -194,11 +197,11 @@ const OnboardingConsultoria = () => {
   const [signatureData, setSignatureData] = useState(null);
   const [studentFieldValues, setStudentFieldValues] = useState({});
 
-// --- FUNÇÃO ATUALIZADA: CAPTURA IP E METADADOS ---
+// --- FUNÇÃO ATUALIZADA: SALVAR ASSINATURA NO LUGAR CERTO ---
 const handleSignContract = async () => {
   if (!activeStudent || !db) return;
 
-  // 1. Validação (Mantém a mesma)
+  // 1. Validação de Campos Pendentes
   const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];
   const requiredKeys = pending
     .filter(f => f?.owner === "student" && f?.key)
@@ -219,55 +222,73 @@ const handleSignContract = async () => {
   try {
     setViewState("loading");
 
-    // 2. CAPTURA DE DADOS DE RASTREABILIDADE (NOVO)
+    // 2. Captura de Metadados (IP, Data)
     let userIP = "Não identificado";
     try {
       const ipReq = await fetch('https://api.ipify.org?format=json');
       const ipData = await ipReq.json();
       userIP = ipData.ip;
-    } catch (err) {
-      console.warn("Não foi possível pegar o IP", err);
-    }
+    } catch (err) { console.warn("Sem IP", err); }
 
-    const userAgent = navigator.userAgent; // Navegador/Dispositivo
+    const userAgent = navigator.userAgent; 
     const timestamp = new Date().toISOString();
 
-    // 3. Atualiza no Firebase com o Log
-    await updateDoc(doc(db, "students", activeStudent.id), {
-      status: "signed",
-      studentData: {
-        ...studentFieldValues,
-        signedAt: timestamp,
-        ipAddress: userIP,
-        deviceInfo: userAgent
-      },
-      signature: {
-        image: signatureData,
-        signedAt: timestamp,
-        ip: userIP,
-        userAgent: userAgent,
-      },
-    });
+    const signatureObj = { image: signatureData, signedAt: timestamp, ip: userIP, userAgent };
+    const finalStudentData = { ...studentFieldValues, signedAt: timestamp, ipAddress: userIP, deviceInfo: userAgent };
+
+    // 3. ATUALIZAÇÃO INTELIGENTE (Contrato Novo vs Legado)
+    if (activeContractId && activeContractId !== "legacy") {
+        // --- CENÁRIO NOVO: Atualiza na coleção 'contracts' ---
+        await updateDoc(doc(db, "contracts", activeContractId), {
+            status: "signed",
+            studentData: finalStudentData,
+            signature: signatureObj
+        });
+
+        // Atualiza o Aluno para refletir que ESTE contrato está assinado
+        await updateDoc(doc(db, "students", activeStudent.id), {
+            latestContractStatus: "signed",
+            status: "signed", // Libera o acesso verde
+            // Salva uma cópia da assinatura no aluno para facilitar a exibição
+            signature: signatureObj 
+        });
+
+    } else {
+        // --- CENÁRIO LEGADO (Antigo) ---
+        await updateDoc(doc(db, "students", activeStudent.id), {
+            status: "signed",
+            latestContractStatus: "signed",
+            studentData: finalStudentData,
+            signature: signatureObj
+        });
+    }
 
     // 4. Feedback e Redirecionamento
+    // Atualiza o estado local para o usuário não precisar dar F5
     setActiveStudent(prev => ({ 
         ...prev, 
         status: "signed",
-        signature: { image: signatureData, ip: userIP, signedAt: timestamp } 
+        signature: signatureObj 
     }));
     
-    await loadPlan(activeStudent.planId);
-    setViewState("student_view_flow");
-    alert("Contrato assinado e registrado com sucesso!");
+    // Tenta carregar o plano (se tiver onboarding)
+    if (activeStudent.planId) {
+        await loadPlan(activeStudent.planId);
+        setViewState("student_view_flow");
+    } else {
+        // Se for só contrato (sem onboarding), mostra mensagem final
+        alert("Contrato assinado com sucesso! Você já pode fechar esta página ou baixar sua cópia.");
+        setViewState("student_view_flow"); // Ou uma tela de 'Obrigado' se preferir
+    }
 
   } catch (e) {
     console.error(e);
-    alert("Erro ao salvar assinatura. Tente novamente.");
+    alert("Erro ao salvar assinatura: " + e.message);
     setViewState("student_login");
   }
 };
 
-// Função atualizada para garantir o redirecionamento correto
+// --- FUNÇÃO ATUALIZADA: CARREGA O CONTRATO NOVO ANTES DE ENTRAR ---
 const handleStudentLoginV2 = async () => {
   if (!activeStudent) {
       alert("Erro: Dados do aluno não carregados. Recarregue a página.");
@@ -278,19 +299,55 @@ const handleStudentLoginV2 = async () => {
   const phoneInputClean = studentPhoneInput.replace(/\D/g, '');
   const studentPhoneClean = activeStudent.phone.replace(/\D/g, '');
   
-  // Comparação frouxa (verifica se o digitado CONTÉM no cadastro ou vice-versa para evitar erro de DDD 0)
+  // Comparação frouxa (evita erro de DDD)
   if (phoneInputClean === studentPhoneClean || studentPhoneClean.endsWith(phoneInputClean)) {
       
-      // 1. Salva na sessão para não pedir de novo se der F5
+      // 1. Salva na sessão
       sessionStorage.setItem('ebony_student_phone', studentPhoneClean);
 
       // 2. Direcionamento
       if (activeStudent.status === 'signed') {
+          // Se já assinou, carrega o plano normal
           await loadPlan(activeStudent.planId);
           setViewState('student_view_flow');
       } else {
-          // AQUI É O PULO DO GATO: Manda para a tela de assinatura
-          setViewState('contract_sign'); 
+          // --- AQUI ESTÁ A CORREÇÃO ---
+          // Antes de ir para a tela de assinatura, BUSCAMOS o texto do contrato na coleção nova
+          setViewState("loading");
+          
+          try {
+             let contractData = null;
+             let contractId = null;
+
+             // Cenário A: Contrato Novo (Coleção contracts)
+             if (activeStudent.latestContractId) {
+                 const contractSnap = await getDoc(doc(db, "contracts", activeStudent.latestContractId));
+                 if (contractSnap.exists()) {
+                     contractData = contractSnap.data();
+                     contractId = contractSnap.id;
+                 }
+             }
+             
+             // Cenário B: Legado (Texto dentro do aluno)
+             if (!contractData && activeStudent.contractText) {
+                 contractData = { contractText: activeStudent.contractText };
+                 contractId = "legacy";
+             }
+
+             if (contractData) {
+                 setActiveContract(contractData);
+                 setActiveContractId(contractId); // Importante para salvar a assinatura depois
+                 setViewState('contract_sign');
+             } else {
+                 alert("Aviso: Nenhum contrato pendente foi encontrado para este cadastro.");
+                 setViewState('student_login');
+             }
+
+          } catch (error) {
+             console.error("Erro ao buscar contrato:", error);
+             alert("Erro de conexão ao buscar contrato.");
+             setViewState('student_login');
+          }
       }
   } else {
       alert(`Número incorreto. O número cadastrado termina em: ...${studentPhoneClean.slice(-4)}`);
@@ -299,101 +356,6 @@ const handleStudentLoginV2 = async () => {
   // --- ⬆️ FIM DA LÓGICA DE ASSINATURA ⬆️ ---
 
   // --- ⬆️ FIM DO BLOCO ⬆️ ---
-
-// --- INICIALIZAÇÃO CORRIGIDA E SIMPLIFICADA ---
-useEffect(() => {
-  const initSystem = async () => {
-    
-    // 1. Garante Tailwind
-    if (!window.tailwind) {
-      if (!document.querySelector('script[src*="tailwindcss"]')) {
-        const script = document.createElement('script');
-        script.src = "https://cdn.tailwindcss.com";
-        document.head.appendChild(script);
-      }
-      await new Promise(r => setTimeout(r, 300));
-    }
-
-    // 2. Leitura dos Parâmetros da URL
-    const params = new URLSearchParams(window.location.search);
-    const urlId = params.get('id');        
-    const urlToken = params.get('token'); // Link do Aluno
-    const urlAdmin = params.get('admin');
-    const urlRegister = params.get('register');
-
-    // --- ROTEAMENTO INTELIGENTE ---
-
-    // CENÁRIO A: Link Público de Pré-Cadastro
-    if (urlRegister) {
-        setViewState('public_register');
-        return;
-    }
-
-    // CENÁRIO B: Link Exclusivo do Aluno (Token) -> PRIORIDADE MÁXIMA
-    if (urlToken) {
-      setViewState('loading'); // Mostra loading enquanto busca
-      try {
-        const studentRef = doc(db, "students", urlToken);
-        const studentSnap = await getDoc(studentRef);
-
-        if (studentSnap.exists()) {
-           const sData = { id: studentSnap.id, ...studentSnap.data() };
-           setActiveStudent(sData); // Salva o aluno na memória
-
-           // Verifica se já está logado neste navegador (SessionStorage)
-           const savedPhone = sessionStorage.getItem('ebony_student_phone');
-           const studentPhone = sData.phone ? sData.phone.replace(/\D/g, '') : '';
-           
-           // Se o telefone salvo for igual ao do aluno carregado, entra direto
-           if (savedPhone === studentPhone) {
-              if (sData.status === 'signed') {
-                  // Se já assinou, carrega o conteúdo
-                  await loadPlan(sData.planId);
-                  setViewState('student_view_flow');
-              } else {
-                  // Se não assinou, vai para o contrato
-                  setViewState('contract_sign');
-              }
-           } else {
-              // Se não tiver logado (ou for outro aluno), manda pro Login
-              setViewState('student_login');
-           }
-        } else {
-           alert("Link inválido ou convite não encontrado.");
-           setViewState('login'); // Volta pro login admin em caso de erro
-        }
-      } catch (e) {
-         console.error("Erro ao buscar aluno:", e);
-         alert("Erro de conexão. Tente recarregar.");
-      }
-      return; // Encerra aqui para não conflitar com outras rotas
-    }
-
-    // CENÁRIO C: Link de Fluxo Direto (Legado/Testes)
-    if (urlId) {
-      await loadPlan(urlId);
-      setActivePlanId(urlId);
-      setViewState('student_view_legacy');
-      return;
-    }
-
-    // CENÁRIO D: Acesso Admin / Dashboard
-    const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
-    if (urlAdmin === 'true' || hasSession) {
-      setIsAdminAccess(true);
-      try {
-        await Promise.all([loadAllPlans(), loadAllStudents()]);
-      } catch (error) {
-        console.error("Erro dados iniciais:", error);
-      }
-      setViewState('dashboard');
-    } else {
-      setViewState('login');
-    }
-  };
-
-  initSystem();
-}, []);
 
   // --- LOGINS ---
   const handleAdminLogin = async () => {
@@ -434,6 +396,86 @@ useEffect(() => {
     }
   };
 
+  // --- MICROCIRURGIA 03: O GATILHO INICIAL ---
+  // Isso verifica se tem usuário logado ao abrir o site.
+  // Sem isso, o sistema fica no "loading" para sempre.
+// --- MICROCIRURGIA: GATILHO INICIAL (CORRIGIDO: PRIORIDADE PARA LINKS) ---
+useEffect(() => {
+  // 1. Captura parâmetros da URL IMEDIATAMENTE
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get("token"); // Link do Aluno
+  const urlFlowId = params.get("id");   // Link do Fluxo (Público)
+
+  const unsubscribe = auth.onAuthStateChanged(async (user) => {
+    
+    // PRIORIDADE 1: LINK DE ALUNO (token)
+    // Se tiver token na URL, ignora o admin logado e abre a tela do aluno
+    if (urlToken) {
+       try {
+         setViewState("loading");
+         const snap = await getDoc(doc(db, "students", urlToken));
+
+         if (!snap.exists()) {
+           alert("Link inválido ou aluno não encontrado.");
+           setViewState("login");
+           return;
+         }
+
+         const st = { id: snap.id, ...snap.data() };
+         setActiveStudent(st);
+         setStudentPhoneInput("");
+         
+         // Manda para o login do aluno
+         setViewState("student_login");
+       } catch (err) {
+         console.error("Erro token:", err);
+         setViewState("login");
+       }
+       return; // PÁRA AQUI! Não deixa carregar o Dashboard.
+    }
+
+    // PRIORIDADE 2: LINK DE FLUXO PÚBLICO (id)
+    // Se tiver ID de fluxo, abre o fluxo (mesmo com admin logado)
+    if (urlFlowId) {
+       try {
+         setViewState("loading");
+         await loadPlan(urlFlowId); // Carrega o plano público
+         setActiveStudent(null);    // Garante que não tem aluno preso na memória
+         setViewState("student_view_flow"); // Abre a visão do fluxo
+       } catch(err) {
+         console.error("Erro fluxo:", err);
+         setViewState("login");
+       }
+       return; // PÁRA AQUI!
+    }
+
+    // PRIORIDADE 3: ADMIN LOGADO
+    // Só entra aqui se NÃO tiver link na URL
+    if (user) {
+      console.log("Admin logado:", user.email);
+      setIsAdminAccess(true);
+      try {
+          await Promise.all([loadAllPlans(), loadAllStudents()]);
+          setViewState('dashboard');
+      } catch (error) {
+          console.error("Erro ao carregar dados iniciais", error);
+          setViewState('dashboard');
+      }
+    } else {
+      // PRIORIDADE 4: NINGUÉM LOGADO E SEM LINK
+      setViewState("login");
+    }
+  });
+  
+  // Funções auxiliares (Mantidas para funcionar o escopo)
+  const loadStudentById = async (id) => {
+    const snap = await getDoc(doc(db, "students", id));
+    if (!snap.exists()) return null;
+    return { id: snap.id, ...snap.data() };
+  };
+  
+  return () => unsubscribe();
+}, []);
   // --- FIRESTORE ALUNOS ---
   const loadAllStudents = async () => {
     if (!db) return;
@@ -445,26 +487,55 @@ useEffect(() => {
   };
 
   const onCreateStudent = async (data) => {
-    if (!db) return;
+    // ✅ mantenha a trava do db (só melhora a mensagem)
+    if (!db) {
+      alert("Erro: banco não iniciado. Recarregue a página e tente novamente.");
+      return;
+    }
+  
     try {
-      // Verificação de segurança
-      if (!data.name || !data.planId) {
-        alert("Erro: Nome do aluno ou Plano não selecionados.");
+      // ✅ agora só exige nome (plano NÃO é obrigatório)
+      if (!data?.name || !String(data.name).trim()) {
+        alert("Erro: Nome do aluno é obrigatório.");
         return;
       }
-
-      // CORREÇÃO AQUI: Usando 'doc' e 'collection' diretamente
-      const newStudentRef = doc(collection(db, "students")); 
-      const finalData = { ...data, id: newStudentRef.id };
-      
+  
+      // ✅ garante strings (evita crash no .replace do login)
+      const safePhone = String(data.phone || "");
+      const safeEmail = String(data.email || "");
+      const safeCpf = String(data.cpf || "");
+  
+      const newStudentRef = doc(collection(db, "students"));
+  
+      const finalData = {
+        ...data,
+  
+        id: newStudentRef.id,
+  
+        name: String(data.name).trim(),
+        phone: safePhone,   // pode ser "" (aluno sem telefone ainda)
+        email: safeEmail,
+        cpf: safeCpf,
+  
+        // ✅ vínculos opcionais (ponto-chave)
+        planId: data.planId ? data.planId : null,
+        latestContractId: data.latestContractId ? data.latestContractId : null,
+  
+        // ✅ status coerente com “aluno solto”
+        status: data.planId ? (data.status || "pending_contract") : "student_only",
+  
+        createdAt: data.createdAt || new Date().toISOString(),
+      };
+  
       await setDoc(newStudentRef, finalData);
+  
       await loadAllStudents();
-      alert("Convite criado com sucesso!");
-    } catch (e) { 
+      alert("Aluno cadastrado com sucesso! (sem vínculo obrigatório)");
+    } catch (e) {
       console.error("ERRO FIREBASE:", e);
-      alert("Erro ao criar convite: " + e.message); 
+      alert("Erro ao criar aluno: " + e.message);
     }
-  };
+  };  
 
   const handleDeleteStudent = async (id) => {
     if (!db) return;
@@ -854,10 +925,21 @@ const handleImageUpload = async (index, e) => {
         onReloadData={loadAllStudents}
 
         onToggleDelivery={toggleMaterialDelivered}
+        onOpenFinancial={() => setViewState('financial')}
       />
     );
   }
 
+  // --- TELA: MÓDULO FINANCEIRO ---
+  if (viewState === 'financial') {
+    return (
+      <FinancialModule 
+        db={db} // IMPORTANTE: Passar o banco de dados
+        user={auth.currentUser} // Se precisar de autenticação
+        onBack={() => setViewState('dashboard')} // Botão de voltar
+      />
+    );
+  }
   // --- RENDERIZAÇÃO ---
 
   if (viewState === 'loading') return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F5]"><Loader className="w-8 h-8 animate-spin text-gray-400"/></div>;
@@ -965,7 +1047,7 @@ if (viewState === 'login') return (
   );
 
   if (viewState === 'contract_sign') {
-    const baseHTML = activeStudent?.contractText || "<div style='padding:40px; text-align:center; color:red; font-weight:bold;'>⚠️ ERRO: O texto do contrato não foi gerado. O treinador precisa salvar a minuta no Dashboard primeiro.</div>";
+    const baseHTML = activeContract?.contractText || "<div style='padding:40px; text-align:center; color:red; font-weight:bold;'>⚠️ ERRO: O texto do contrato não foi gerado. O treinador precisa salvar a minuta no Dashboard primeiro.</div>";
 
     // campos do modelo que são do aluno
     const pending = Array.isArray(activeStudent?.pendingFields) ? activeStudent.pendingFields : [];

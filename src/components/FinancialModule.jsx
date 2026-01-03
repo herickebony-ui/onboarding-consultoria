@@ -9,7 +9,7 @@ import {
   Plus, X, Filter, History,
   CheckCircle2, Eraser, Edit2, CalendarDays, RefreshCcw, CheckCircle
 } from 'lucide-react';
-import { db } from '../services/firebase';
+import { db } from '../firebase';
 
 const ALLOWED_COLORS = [
     'slate','red','rose','orange','amber','yellow',
@@ -330,86 +330,89 @@ const logAudit = async (payload) => {
   };  
   
 // --- COMPONENTE PRINCIPAL ---
-export default function FinancialModule({ students }) {
+export default function FinancialModule({ students = [] }) {
+  const [records, setRecords] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [filters, setFilters] = useState({ search: "", status: "all" });
+  const [dueSortDir, setDueSortDir] = useState("asc");
+
+  const [dateRange, setDateRange] = useState(() => {
+    const t = getTodayISO();
+    const start = `${t.slice(0, 8)}01`; // dia 01 do mês atual
+    return { start, end: t };
+  });
+
+  const [planModalOpen, setPlanModalOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
     const [todayISO, setTodayISO] = useState(getTodayISO());
 
     useEffect(() => {
-      const initSystem = async () => {
-        const params = new URLSearchParams(window.location.search);
-        const urlId = params.get('id');       
-        const urlToken = params.get('token'); 
-        const urlRegister = params.get('register');
-  
-        // Rota A: Pré-Cadastro Público
-        if (urlRegister) {
-          setViewState('public_register');
-          return;
+      setLoading(true);
+    
+      const qPayments = query(
+        collection(db, "payments"),
+        orderBy("createdAt", "desc")
+      );
+    
+      const unsubPayments = onSnapshot(
+        qPayments,
+        (snap) => {
+          setRecords(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          setLoading(false);
+        },
+        (err) => {
+          console.error(err);
+          alert("ERRO ao carregar pagamentos: " + (err?.message || err));
+          setLoading(false);
         }
-  
-        // Rota B: Aluno (Link com Token)
-        if (urlToken) {
-          setViewState('loading');
-          try {
-            const studentRef = doc(db, "students", urlToken);
-            const studentSnap = await getDoc(studentRef);
-  
-            if (studentSnap.exists()) {
-              const sData = { id: studentSnap.id, ...studentSnap.data() };
-              setActiveStudent(sData);
-  
-              // Carrega o Plano do Aluno
-              if (sData.planId) {
-                  const planRef = doc(db, "onboarding", sData.planId);
-                  const planSnap = await getDoc(planRef);
-                  if (planSnap.exists()) {
-                      setActivePlanData(planSnap.data());
-                  }
-              }
-              setViewState('student_view');
-            } else {
-              alert("Convite não encontrado.");
-              setViewState('login');
-            }
-          } catch (e) {
-            console.error("Erro ao carregar aluno:", e);
-            alert("Erro de conexão.");
-          }
-          return;
+      );
+    
+      const qPlans = query(
+        collection(db, "plans"),
+        orderBy("name", "asc")
+      );
+    
+      const unsubPlans = onSnapshot(
+        qPlans,
+        (snap) => {
+          setPlans(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        },
+        (err) => {
+          console.error(err);
+          alert("ERRO ao carregar planos: " + (err?.message || err));
         }
-  
-        // Rota C: Admin Logado
-        const hasSession = sessionStorage.getItem('ebony_admin') === 'true';
-        if (hasSession) {
-          await loadDashboardData();
-          setViewState('dashboard');
-        } else {
-          setViewState('login');
+      );
+    
+      const qAudit = query(
+        collection(db, "audit_logs"),
+        orderBy("createdAt", "desc"),
+        limit(300)
+      );
+    
+      const unsubAudit = onSnapshot(
+        qAudit,
+        (snap) => {
+          setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        },
+        (err) => {
+          console.error(err);
+          alert("ERRO ao carregar auditoria: " + (err?.message || err));
         }
+      );
+    
+      return () => {
+        unsubPayments();
+        unsubPlans();
+        unsubAudit();
       };
-  
-      initSystem();
-    }, []);   
-
-      useEffect(() => {
-        const qAudit = query(
-          collection(db, 'audit_logs'),
-          orderBy('createdAt', 'desc'),
-          limit(300)
-        );
-      
-        const unsubAudit = onSnapshot(
-          qAudit,
-          (s) => {
-            setAuditLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
-          },
-          (err) => {
-            alert("ERRO ao carregar auditoria: " + (err?.message || err));
-          }
-        );
-      
-        return () => unsubAudit();
-      }, []);        
-    const studentsMap = useMemo(() => students.reduce((acc, s) => ({...acc, [s.id]: s}), {}), [students]);
+    }, []);    
+     
+      const studentsMap = useMemo(
+        () => (students || []).reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
+        [students]
+      );
 
     const plansById = useMemo(() => {
         const m = {};
@@ -617,11 +620,20 @@ export default function FinancialModule({ students }) {
     };
 
     const openHistory = (studentId) => {
-        const student = studentsMap[studentId];
-        const history = records.filter(r => r.studentId === studentId).sort((a,b) => normalizeDate(b.payDate || b.dueDate) > normalizeDate(a.payDate || a.dueDate) ? -1 : 1);
-        setSelectedStudentHistory({ student, history });
-        setHistoryModalOpen(true);
+      const student = studentsMap[studentId];
+    
+      const history = records
+        .filter(r => r.studentId === studentId)
+        .sort((a, b) => {
+          const aISO = normalizeDate(a.payDate || a.dueDate) || "";
+          const bISO = normalizeDate(b.payDate || b.dueDate) || "";
+          return bISO.localeCompare(aISO); // mais recente primeiro
+        });
+    
+      setSelectedStudentHistory({ student, history });
+      setHistoryModalOpen(true); // se teu modal depende disso
     };
+    
 
     const handleSave = async (e) => {
         e.preventDefault();
@@ -811,7 +823,13 @@ export default function FinancialModule({ students }) {
                             const badge = getMonthBadge(r.dueDate); // Visual Notion
 
                             const planObj = r.planId ? plansById[r.planId] : null;
-                            const planNameToShow = planObj?.name || r.planType;  
+                            const planNameToShow = planObj?.name || r.planType;
+
+                            const planColor =
+                              planObj?.color ||
+                              plansById[r.planId]?.color ||
+                              plans.find(p => p.name === r.planType)?.color ||
+                              "slate"; 
 
                             return (
                                 <tr key={r.id} className="hover:bg-gray-50 group transition-colors">
@@ -836,12 +854,11 @@ export default function FinancialModule({ students }) {
 
                                     <td className="p-4">
                                         {/* O fundo colorido agora vem do banco de dados */}
-                                        <div className={`font-bold text-xs inline-block px-2 py-0.5 rounded border 
-                                            ${plans.find(p => p.name === r.planType)?.color === 'green' ? 'bg-green-100 text-green-800 border-green-200' : 
-                                            plans.find(p => p.name === r.planType)?.color === 'yellow' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                                            'bg-gray-100 text-gray-700 border-gray-200'}`}>
-                                            {planNameToShow}
-                                        </div>
+                                        <div className={`font-bold text-xs inline-block px-2 py-0.5 rounded border ${ 
+                                        COLOR_BADGE[planColor] || COLOR_BADGE.slate
+                                        }`}>
+                                        {planNameToShow}
+                                      </div>
                                         <div className="text-[10px] text-gray-400 uppercase tracking-wide block mt-1">{r.paymentMethod}</div>
                                     </td>
                                     

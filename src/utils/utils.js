@@ -432,13 +432,26 @@ export const generateContractPDF = async (student) => {
               await uploadBytes(storageRef, pdfBlob);
               const downloadUrl = await getDownloadURL(storageRef);
   
-              // CORREÇÃO: Usando 'doc' (importado do firestore) corretamente
-              // (Assumindo que você não tem mais a variável 'doc' conflitante aqui dentro)
               await updateDoc(doc(db, "students", student.id), {
                 contractPdfUrl: downloadUrl,
                 status: "signed",
                 contractPdfUpdatedAt: new Date().toISOString(),
               });
+  
+              // 2. NOVO: Salva o link também no HISTÓRICO (Coleção contracts)
+              // Se o aluno tiver um ID de contrato vinculado, salvamos lá também
+              if (student.latestContractId) {
+                  try {
+                      await updateDoc(doc(db, "contracts", student.latestContractId), {
+                          contractPdfUrl: downloadUrl,
+                          status: "signed",
+                          pdfGeneratedAt: new Date().toISOString()
+                      });
+                      console.log("PDF vinculado com sucesso ao contrato:", student.latestContractId);
+                  } catch (err) {
+                      console.error("Aviso: Não foi possível vincular PDF ao histórico (mas salvou no aluno).", err);
+                  }
+              }
   
               // Salvar Local
               const firstName = (student.name || "Aluno").split(" ")[0];
